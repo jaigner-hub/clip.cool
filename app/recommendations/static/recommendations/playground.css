@@ -1,0 +1,56 @@
+/* Recommendations playground — uses the --kg-* brand tokens from web/keygrip.css (no raw hexes). */
+
+.kg-field-label { font-size: 0.8rem; color: var(--kg-grey); margin-right: 0.4rem; }
+
+.kg-textarea {
+  width: 100%;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0.6rem 0;
+  resize: vertical;
+}
+
+.kg-input-sm { min-width: 0; width: auto; }
+
+.kg-check { font-size: 0.85rem; color: var(--kg-grey); display: inline-flex; align-items: center; gap: 0.35rem; }
+
+.kg-status-error {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--kg-canvas);
+  border: 1px solid var(--kg-cyan-strong);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: var(--kg-ink);
+}
+
+.kg-results { display: grid; gap: 1rem; margin-top: 1.5rem; }
+
+.kg-rec {
+  border: 1px solid var(--kg-line);
+  border-radius: var(--kg-radius);
+  background: var(--kg-surface);
+  padding: 1.1rem 1.25rem;
+}
+
+.kg-rec-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+.kg-rec-cat { text-transform: capitalize; }
+
+.kg-rec-effort {
+  text-transform: capitalize;
+  background: var(--kg-canvas);
+  border-color: var(--kg-line);
+}
+
+.kg-rec-score { margin-left: auto; font-size: 0.78rem; color: var(--kg-grey); }
+
+.kg-rec-title { font-family: var(--kg-serif); font-size: 1.15rem; margin: 0.6rem 0 0.4rem; color: var(--kg-ink); }
+
+.kg-rec-why, .kg-rec-desc { margin: 0.3rem 0; font-size: 0.92rem; line-height: 1.55; color: var(--kg-ink); }
+
+.kg-rec-action { font-size: 0.78rem; text-transform: capitalize; margin: 0.4rem 0 0.2rem; }
+
+.kg-rec-actions { margin-top: 0.8rem; }

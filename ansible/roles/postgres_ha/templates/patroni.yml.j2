@@ -1,0 +1,62 @@
+# Patroni config (ADR 0016) — rendered per data node. NON-SECRET only: all passwords come from
+# PATRONI_* environment variables (see env.j2 / .env, SOPS-sourced), never rendered to disk here.
+# Patroni env-var overrides: https://patroni.readthedocs.io/en/latest/ENVIRONMENT.html
+scope: keygrip-pgha
+namespace: /keygrip/
+name: {{ patroni_name }}
+
+restapi:
+  # Bind to the tailnet IP + loopback only (HAProxy health-checks it cross-box over the tailnet).
+  listen: {{ node_address }}:{{ patroni_rest_port }}
+  connect_address: {{ node_address }}:{{ patroni_rest_port }}
+  # auth on the REST API's unsafe (POST/PATCH/DELETE) endpoints — creds via PATRONI_RESTAPI_* env
+
+etcd3:
+  hosts:
+{% for m in pg_ha_etcd_members %}
+    - {{ m.address }}:{{ etcd_client_port }}
+{% endfor %}
+
+# Cluster-wide settings are written to the DCS ONCE at first bootstrap. Change them later with
+# `patronictl edit-config`, NOT by editing this block (it's ignored after bootstrap).
+bootstrap:
+  dcs:
+    ttl: {{ patroni_ttl }}
+    loop_wait: {{ patroni_loop_wait }}
+    retry_timeout: {{ patroni_retry_timeout }}
+    maximum_lag_on_failover: {{ patroni_maximum_lag_on_failover }}
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+{% for k, v in pg_ha_parameters.items() %}
+        {{ k }}: "{{ v }}"
+{% endfor %}
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  pg_hba:
+    - local all all trust
+    - host replication {{ pg_ha_repl_user | default('replicator') }} 0.0.0.0/0 scram-sha-256
+    - host all all 0.0.0.0/0 scram-sha-256
+
+postgresql:
+  # listen on the tailnet IP (replication + HAProxy reach it cross-box) + loopback; NOT the public IF.
+  listen: 127.0.0.1,{{ node_address }}:5432
+  connect_address: {{ node_address }}:5432
+  data_dir: /var/lib/postgresql/data/pgroot
+  bin_dir: /usr/lib/postgresql/{{ pg_ha_postgres_major }}/bin
+  pgpass: /tmp/pgpass
+  # superuser + replication credentials come from PATRONI_SUPERUSER_* / PATRONI_REPLICATION_* env.
+  parameters:
+    password_encryption: scram-sha-256
+
+# No hardware watchdog inside a container.
+watchdog:
+  mode: off
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false

@@ -1,0 +1,123 @@
+# Rendered by Ansible (roles/observability).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+  - job_name: app
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['webapp:8000']   # Django app on the keygrip-edge network
+  - job_name: keycloak
+    metrics_path: /metrics
+    # Keycloak is host-networked + clustered on BOTH boxes (ADR 0016) — scrape each node's mgmt port
+    # (9000) on its tailnet IP. ufw allows tailscale0 (cross-box) + the docker range (local hairpin).
+    static_configs:
+{% for h in groups['dev'] %}
+      - targets: ['{{ hostvars[h].ansible_host }}:9000']
+        labels:
+          application: keycloak     # so the JVM (Micrometer) dashboard's filter resolves
+          instance: '{{ h }}'
+{% endfor %}
+
+  # postgres exporters run on BOTH boxes (keygrip-web + keycloak stacks). The LOCAL box is scraped via
+  # the edge-net docker-DNS name (Prometheus is on keygrip-edge) — reaching our own docker-PUBLISHED
+  # port via the host's tailnet IP fails (NAT hairpin; unlike the host-networked keycloak job). REMOTE
+  # boxes are scraped on their tailnet IP (host 9187 = app-DB, 9188 = keycloak-DB), riding tailscale0.
+  - job_name: postgres-app
+    static_configs:
+{% for h in groups['dev'] %}
+{% if h == inventory_hostname %}
+      - targets: ['pg-exporter-app:9187']                  # local: edge-net docker DNS
+{% else %}
+      - targets: ['{{ hostvars[h].ansible_host }}:9187']   # remote: tailnet IP (published port)
+{% endif %}
+        labels:
+          instance: '{{ h }}'
+{% endfor %}
+  - job_name: postgres-keycloak
+    static_configs:
+{% for h in groups['dev'] %}
+{% if h == inventory_hostname %}
+      - targets: ['pg-exporter-keycloak:9187']             # local: edge-net docker DNS (container port)
+{% else %}
+      - targets: ['{{ hostvars[h].ansible_host }}:9188']   # remote: tailnet IP (published host port)
+{% endif %}
+        labels:
+          instance: '{{ h }}'
+{% endfor %}
+
+  # External blackbox probes (uptime from outside + TLS cert expiry) via blackbox-exporter.
+  - job_name: blackbox-http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+{% for t in blackbox_targets %}
+          - {{ t }}
+{% endfor %}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
+
+  # stash HA liveness — probe each cluster node's /v1/health via the stash_health
+  # blackbox module (private CA → skip-verify). A down/stopped node (e.g. the
+  # witness silently not coming back after a reboot) fails the probe → StashNodeDown.
+  # `role` distinguishes keyed nodes from the sealed witness.
+  - job_name: blackbox-stash
+    metrics_path: /probe
+    params:
+      module: [stash_health]
+    static_configs:
+{% for h in groups['dev'] %}
+      - targets: ['https://{{ hostvars[h].ansible_host }}:8200/v1/health']
+        labels: { node: '{{ h }}', role: keyed }
+{% endfor %}
+      - targets: ['https://{{ stash_witness_target }}/v1/health']
+        labels: { node: monitor, role: witness }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
+{% if stash_metrics_enabled %}
+
+  # stash /metrics — richer cluster-health signals than the blackbox liveness probe
+  # (no-leader, voter dropped from raft config, a keyed node unexpectedly sealed).
+  # Gated by stash_metrics_enabled: enable ONLY after rolling out the stash binary
+  # that serves /metrics (jaigner-hub/stash#2), else these 404 → TargetDown. Stash's
+  # private CA isn't in Prometheus' trust store, so skip verify (liveness, not certs).
+  - job_name: stash
+    scheme: https
+    metrics_path: /metrics
+    tls_config:
+      insecure_skip_verify: true
+    static_configs:
+{% for h in groups['dev'] %}
+      - targets: ['{{ hostvars[h].ansible_host }}:8200']
+        labels: { node: '{{ h }}', role: keyed }
+{% endfor %}
+      - targets: ['{{ stash_witness_target }}']
+        labels: { node: monitor, role: witness }
+{% endif %}

@@ -1,0 +1,53 @@
+---
+- name: Ensure livekit dir exists
+  ansible.builtin.file:
+    path: "{{ livekit_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render livekit config (secrets)
+  ansible.builtin.template:
+    src: livekit.yaml.j2
+    dest: "{{ livekit_dir }}/livekit.yaml"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Render livekit compose
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ livekit_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+# WebRTC media needs inbound connectivity from the public internet (clients send RTP straight to the
+# box's external IP). Signaling (7880) stays closed — cloudflared reaches it over the host gateway.
+- name: Open LiveKit media/ICE ports (public)
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "LiveKit WebRTC (Vent)"
+  loop:
+    - { port: "{{ livekit_tcp_port }}", proto: tcp }
+    - { port: "{{ livekit_udp_start }}:{{ livekit_udp_end }}", proto: udp }
+
+# Signaling (7880) is NOT public — it's reached only over the docker bridge by cloudflared (the
+# wss://livekit.vent.dog tunnel) and by vent-server (LiveKit admin API for participant listing).
+- name: Allow the docker bridge -> LiveKit signaling ({{ livekit_signal_port }})
+  community.general.ufw:
+    rule: allow
+    src: "172.16.0.0/12"
+    port: "{{ livekit_signal_port }}"
+    proto: tcp
+    comment: "docker -> LiveKit signaling (Vent)"
+
+- name: Bring up LiveKit
+  community.docker.docker_compose_v2:
+    project_src: "{{ livekit_dir }}"
+    state: present
+    pull: missing

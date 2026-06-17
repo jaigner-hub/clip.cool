@@ -1,0 +1,28 @@
+# Rendered by Ansible (roles/vaultwarden). Secrets via .env (SOPS-sourced).
+# Break-glass vault: OWN master-password auth (NOT Keycloak SSO) — independence by design.
+name: keygrip-vaultwarden
+
+services:
+  vaultwarden:
+    image: {{ vaultwarden_image }}
+    restart: unless-stopped
+    environment:
+      DOMAIN: "{{ vaultwarden_domain }}"
+      SIGNUPS_ALLOWED: "false"          # invite-only (now emails invites via Resend)
+      ADMIN_TOKEN: ${VW_ADMIN_TOKEN:?}
+      ROCKET_PORT: "80"
+      # Email via Resend SMTP relay (ADR 0005)
+      SMTP_HOST: "smtp.resend.com"
+      SMTP_PORT: "587"
+      SMTP_SECURITY: "starttls"
+      SMTP_FROM: "noreply@vent.dog"
+      SMTP_FROM_NAME: "Keygrip Vault"
+      SMTP_USERNAME: "resend"
+      SMTP_PASSWORD: ${RESEND_API_KEY:?}
+    volumes:
+      - vwdata:/data                    # SQLite DB + attachments
+    ports:
+      - "{{ vaultwarden_bind }}:80"
+
+volumes:
+  vwdata:

@@ -1,0 +1,70 @@
+# Rendered by Ansible (roles/keycloak). Secrets come from .env (SOPS-sourced).
+name: keygrip-keycloak
+
+services:
+  # NOTE: the standalone Postgres was removed — Keycloak's DB now lives on the HA Patroni cluster
+  # (ADR 0016). Migrated 2026-06-11. (The old `pgdata` volume is retained for rollback.)
+  keycloak:
+    image: {{ keycloak_image }}
+    restart: unless-stopped
+    # HOST networking: JGroups binds the box's TAILNET IP directly, so the two nodes cluster
+    # cross-box without docker-proxy/external_addr games (that approach clobbered the JGroups bind).
+    network_mode: host
+    # PRODUCTION mode (clustered HA). `start` auto-builds on first run. Clustering: Infinispan over
+    # the jdbc-ping stack — the two nodes discover each other THROUGH the shared cluster DB.
+    command: ["start", "--cache=ispn", "--cache-stack=jdbc-ping"]
+    environment:
+      KC_DB: postgres
+      # Cluster LEADER via the host's HAProxy on loopback (host networking). Session connection
+      # (NOT PgBouncer txn mode — Keycloak uses advisory locks / Liquibase migrations).
+      KC_DB_URL: jdbc:postgresql://127.0.0.1:5000/{{ keycloak_db_name }}
+      KC_DB_USERNAME: {{ keycloak_db_user }}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?}
+      KC_BOOTSTRAP_ADMIN_USERNAME: {{ keycloak_admin_user }}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?}
+{% if keycloak_hostname | default('') | length > 0 %}
+      KC_HOSTNAME: {{ keycloak_hostname }}
+{% endif %}
+{% if keycloak_admin_hostname | default('') | length > 0 %}
+      KC_HOSTNAME_ADMIN: {{ keycloak_admin_hostname }}
+{% endif %}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"      # Prometheus metrics on the management port (9000)
+      KC_EVENT_METRICS_USER_ENABLED: "true"   # login / registration / failure event counters on /metrics
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      # Bind JGroups (Infinispan cluster) to THIS box's tailnet IP — peers connect to it directly
+      # (ufw allows tailscale0). Host networking makes the tailnet IP bindable in-process.
+      JAVA_OPTS_APPEND: "-Djgroups.bind.address={{ ansible_host }}"
+    # network_mode: host (above) — Keycloak binds 8080 (HTTP), 9000 (mgmt/metrics), 7800/57800
+    # (JGroups) on the host. ufw denies the public interface + allows tailscale0/loopback; a
+    # docker-bridge allow (keycloak role) lets the local app/cloudflared reach 8080 via host-gateway.
+    volumes:
+      - {{ keycloak_themes_dir }}:/opt/keycloak/themes:ro   # custom login theme(s)
+
+  pg-exporter-keycloak:
+    image: {{ postgres_exporter_image }}
+    restart: unless-stopped
+    # Publish on THIS box's tailnet IP for per-box scraping by the vent.dog-only Prometheus. Host port
+    # 9188 (not 9187) avoids clashing with pg-exporter-app's 9187 on the same box's tailnet IP.
+    ports:
+      - "{{ ansible_host }}:9188:9187"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Keycloak's DB now lives on the HA cluster — monitor it via HAProxy (leader).
+      DATA_SOURCE_NAME: "postgresql://{{ keycloak_db_user }}:${KC_DB_PASSWORD:?}@host.docker.internal:5000/{{ keycloak_db_name }}?sslmode=disable"
+    networks: [internal, edge]   # edge -> Prometheus scrapes :9187
+
+  # NOTE: cloudflared moved OUT of this stack into its own `cloudflared` role (run on both boxes,
+  # each with its own tunnel token) so Keycloak can deploy to both nodes without duplicating a
+  # connector. The tunnel routes id.vent.dog -> keycloak:8080 on each box (cf_ingress / cf_ingress2).
+
+volumes:
+  pgdata:
+
+networks:
+  internal:
+  edge:
+    name: keygrip-edge          # shared external net so cloudflared can reach other stacks
+    external: true

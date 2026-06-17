@@ -1,0 +1,10 @@
+---
+# LiveKit (WebRTC SFU) for Vent voice/video. Runs host-networked on vent.dog because WebRTC media
+# needs inbound UDP that a Cloudflare tunnel can't carry (REBOOT.md decision: open the UDP ports on
+# the box). Signaling (wss://livekit.vent.dog) still rides the tunnel → host.docker.internal:7880.
+livekit_dir: /opt/keygrip/livekit
+livekit_image: "livekit/livekit-server:v1.13.1"
+livekit_signal_port: 7880    # HTTP/WS signaling — reached by cloudflared over the host gateway
+livekit_tcp_port: 7881       # ICE/TCP fallback (public)
+livekit_udp_start: 50000     # RTP media range (public)
+livekit_udp_end: 50100

@@ -1,0 +1,51 @@
+---
+# ⚠️  DANGER — this restricts inbound SSH to the tailscale0 interface and drops
+#     public port 22. It CAN LOCK YOU OUT.
+#
+# Run ONLY after ALL of:
+#   - you've SSH'd to the box over Tailscale in a separate session (it works),
+#   - your provider web console + root password are confirmed (fallback),
+#   - Ansible is reaching the box over its TAILSCALE address (not the public IP),
+#     so this play doesn't cut its own connection mid-run.
+#
+#   ./ac ansible-playbook playbooks/harden-ssh.yml -e confirm_lockdown=yes
+- name: Harden SSH — Tailscale-only (can lock you out)
+  hosts: dev
+  become: true
+  tasks:
+    - name: Refuse to run without explicit confirmation
+      ansible.builtin.assert:
+        that: confirm_lockdown | default('') == 'yes'
+        fail_msg: >-
+          Refusing without -e confirm_lockdown=yes. Verify Tailscale SSH works and
+          you have the console + root-password fallback first.
+
+    - name: Install ufw
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+        update_cache: true
+
+    - name: Allow everything on the tailscale0 interface (keeps tailnet SSH alive)
+      community.general.ufw:
+        rule: allow
+        interface: tailscale0
+        direction: in
+
+    - name: Allow the WireGuard underlay (direct conns; falls back to DERP relay if blocked)
+      community.general.ufw:
+        rule: allow
+        port: "41641"
+        proto: udp
+
+    - name: Default-deny incoming / allow outgoing, then enable ufw
+      community.general.ufw:
+        direction: "{{ item.dir }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { dir: incoming, policy: deny }   # <- drops public port 22
+        - { dir: outgoing, policy: allow }
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled

@@ -1,0 +1,53 @@
+{% extends "app_base.html" %}
+{% block title %}Projects · keygrip{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">Projects</h1>
+  {% if request.organization %}
+    <p class="kg-sub">{{ request.organization.name }}</p>
+  {% else %}
+    <p class="kg-sub">All organizations · superuser</p>
+  {% endif %}
+  {% if is_org_member %}
+    <a class="kg-btn kg-btn-sm" href="{% url 'project_create' %}">New project</a>
+  {% endif %}
+</div>
+
+{% if projects %}
+<ul class="kg-list">
+  {% for p in projects %}
+  <li class="kg-list-item">
+    <span class="kg-list-name">{{ p.name }}</span>
+    {% if not request.organization %}<span class="kg-muted">{{ p.organization.name }}</span>{% endif %}
+    {% if is_org_admin %}
+      <a class="kg-btn kg-btn-sm kg-btn-danger" href="{% url 'project_delete' p.id %}">Delete</a>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="kg-empty">
+  <p class="kg-empty-title">No projects yet</p>
+  <p class="kg-muted">Projects in your organization will appear here.</p>
+</div>
+{% endif %}
+
+{# Temporary identity/debug panel for testing — remove once the app surface fills in. #}
+<section class="kg-panel">
+  <h2 class="kg-h2">Session <span class="kg-muted">· testing</span></h2>
+  <dl class="kg-meta">
+    <dt>User</dt><dd>{{ user.get_username }}</dd>
+    <dt>Email</dt><dd>{{ user.email }}</dd>
+    <dt>Roles</dt>
+    <dd class="kg-roles">
+      {% for g in user.groups.all %}<span class="kg-pill">{{ g.name }}</span>{% empty %}<span class="kg-muted">none</span>{% endfor %}
+    </dd>
+    <dt>Access</dt>
+    <dd class="kg-muted">superuser: {{ user.is_superuser }} · staff: {{ user.is_staff }}</dd>
+  </dl>
+  <div class="kg-row">
+    {% if user.is_staff %}<a class="kg-btn kg-btn-sm" href="{{ admin_url }}">Django admin</a>{% endif %}
+    <a class="kg-btn kg-btn-sm" href="/api/v1/docs" target="_blank" rel="noopener">API docs</a>
+  </div>
+</section>
+{% endblock %}

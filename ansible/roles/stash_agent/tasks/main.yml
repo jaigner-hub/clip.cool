@@ -1,0 +1,83 @@
+---
+# Installs `stash agent` as a systemd service on each app box. Additive: it does
+# NOT change how keygrip_web sources its .env yet — run it alongside SOPS, parity-
+# diff, then flip keygrip_web's env source (see the README block at the bottom).
+#
+# Prereqs already satisfied on the dev group: the stash binary at {{ stash_agent_bin }},
+# a running `stash server` (stash.service) with the CA at {{ stash_ca }}, and the
+# scoped `keygrip-web` identity token in SOPS as vault_stash_web_token.
+
+- name: Assert the agent token is available
+  ansible.builtin.assert:
+    that:
+      - vault_stash_web_token is defined
+      - vault_stash_web_token | length > 0
+    fail_msg: >-
+      vault_stash_web_token is not set. Add the scoped keygrip-web token to SOPS
+      (group_vars/dev) and run via ./ac so it is decrypted at runtime.
+
+- name: Ensure {{ stash_etc_dir }} exists
+  ansible.builtin.file:
+    path: "{{ stash_etc_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+# --- token -> host-bound systemd credential (only re-encrypt when it changed,
+#     so a steady deploy doesn't churn the cred / bounce the agent) ---
+- name: Read the current token credential (if any)
+  ansible.builtin.command: "systemd-creds decrypt --name=stash-token {{ stash_token_cred }} -"
+  register: _cur_token
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: (Re)encrypt the agent token as a host-bound credential
+  when: _cur_token.rc != 0 or _cur_token.stdout != vault_stash_web_token
+  no_log: true
+  block:
+    - name: Stage the token plaintext (transient)
+      ansible.builtin.copy:
+        content: "{{ vault_stash_web_token }}"
+        dest: "{{ stash_etc_dir }}/.web-token.plain"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Encrypt with the host key
+      ansible.builtin.command: >-
+        systemd-creds encrypt --name=stash-token
+        {{ stash_etc_dir }}/.web-token.plain {{ stash_token_cred }}
+      changed_when: true
+      notify: restart stash-agent
+  always:
+    - name: Remove the token plaintext
+      ansible.builtin.file:
+        path: "{{ stash_etc_dir }}/.web-token.plain"
+        state: absent
+
+- name: Install the stash-agent unit
+  ansible.builtin.template:
+    src: stash-agent.service.j2
+    dest: /etc/systemd/system/stash-agent.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart stash-agent
+
+- name: Enable + start stash-agent
+  ansible.builtin.systemd:
+    name: stash-agent.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# After this runs you have a live, self-refreshing /run/keygrip/web.env. Verify
+# parity BEFORE flipping the app over:
+#   diff <(sudo cat /opt/keygrip/webapp/.env | sort) \
+#        <(sudo cat /run/keygrip/web.env | sort)
+# When clean, flip keygrip_web to source it (the one-line cutover):
+#   roles/keygrip_web/tasks/main.yml — drop the "Render app .env (secrets)" task
+#   and add `--env-file /run/keygrip/web.env` to the compose bring-up (and to the
+#   migrate/restart exec tasks). Until then SOPS stays authoritative (ADR-0018).

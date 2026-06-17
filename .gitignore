@@ -1,0 +1,35 @@
+# --- secrets: NEVER commit private keys or decrypted output ---
+*.agekey
+age-keys.txt
+keys.txt
+*.dec
+*.decrypted
+*.plain.yml
+.vault_pass
+
+# --- ansible ---
+*.retry
+ansible/.ansible/
+ansible/collections/
+
+# --- python / editors / os ---
+__pycache__/
+*.pyc
+.venv/
+.env
+.DS_Store
+*.swp
+
+# local secret backups (encrypted; not versioned)
+.secrets-backups/
+
+# django local dev db
+*.sqlite3
+
+# django collected static (built in image)
+staticfiles/
+
+# Wrangler (Cloudflare) local cache
+.wrangler/
+# staged stash server binary (built in ~/Projects/stash, copied here by bin/deploy-stash)
+ansible/roles/stash/files/stash

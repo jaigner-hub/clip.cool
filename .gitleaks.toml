@@ -1,0 +1,15 @@
+# gitleaks config — extends the default ruleset, allowlists SOPS ciphertext.
+# SOPS-encrypted files hold only AES-GCM ciphertext (ENC[...]) plus a *public* age recipient —
+# both safe to commit (ADR 0001). Without this, gitleaks' high-entropy rules flag the ciphertext.
+title = "keygrip"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "SOPS-encrypted secret stores and the public .sops.yaml recipient map."
+paths = [
+  '''.*secrets\.sops\.ya?ml$''',
+  '''^\.sops\.yaml$''',
+  '''^\.secrets-backups/''',
+]

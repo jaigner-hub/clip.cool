@@ -1,0 +1,8 @@
+[Unit]
+Description=keygrip — reboot for a pending update ONLY if the cluster can safely lose this node (ADR 0016)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={{ drain_dir }}/drain.sh reboot-if-safe

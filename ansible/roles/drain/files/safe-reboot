@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# safe-reboot — reboot THIS box only if the HA cluster can survive losing it (all 3 etcd members
+# healthy + the peer app node up). Use this instead of `reboot` for planned maintenance: the
+# keygrip-drain unit then drains it from the CF LB on shutdown for a zero-interruption reboot.
+exec /opt/keygrip/drain/drain.sh safe-reboot

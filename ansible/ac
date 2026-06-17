@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ac — run Ansible inside the pinned control container (ADR 0007).
+#
+# Every Ansible invocation goes through here so versions are identical on every
+# laptop and in CI. The image auto-builds on first use.
+#
+#   ./ac ansible --version
+#   ./ac ansible-playbook playbooks/bootstrap.yml
+#   ./ac ansible-galaxy collection install -r requirements.yml
+#
+# Mounts: the repo (cwd = ansible/), your SSH keys (ro) for reaching hosts, and
+# your age key (ro) so community.sops can decrypt at runtime.
+set -euo pipefail
+
+IMAGE="${KEYGRIP_ANSIBLE_IMAGE:-keygrip-ansible:local}"
+ANSIBLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$ANSIBLE_DIR/.." && pwd)"
+
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  echo "[ac] building $IMAGE ..." >&2
+  docker build -t "$IMAGE" -f "$ANSIBLE_DIR/control/Dockerfile" "$ANSIBLE_DIR"
+fi
+
+# Allocate a TTY only when attached to one (so CI works too).
+TI=()
+[ -t 0 ] && TI=(-it)
+
+# SSH + age keys are mounted under /mnt and staged to root-owned copies by the
+# image entrypoint (host files are uid 1000; the container runs as root).
+exec docker run --rm "${TI[@]}" \
+  -v "$REPO_ROOT":/work -w /work/ansible \
+  -v "$HOME/.ssh":/mnt/ssh:ro \
+  -v "$HOME/.config/sops/age":/mnt/age:ro \
+  -e ANSIBLE_CONFIG=/work/ansible/ansible.cfg \
+  "$IMAGE" "$@"

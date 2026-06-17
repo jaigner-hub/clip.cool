@@ -1,0 +1,293 @@
+# Managed by Ansible (roles/keycloak_realm); applied via keycloak-config-cli.
+# Real secrets are injected by kcc env substitution at apply time — never hardcode them here.
+realm: keygrip
+enabled: true
+displayName: "keygrip"
+loginTheme: keygrip
+# NONE (was external): the 2nd app node (vent.dog2) reaches Keycloak for JWKS/admin over the tailnet,
+# whose CGNAT 100.64/10 source IP Keycloak treats as "external" -> would demand HTTPS on the internal
+# hop. Keycloak is non-public (cloudflared tunnel + tailnet only) and real browser traffic is HTTPS
+# (Cloudflare, X-Forwarded-Proto), so there is no untrusted HTTP path. Dev posture (ADR 0016).
+sslRequired: none
+registrationAllowed: true           # self-serve signup; Google brokering already auto-creates users
+registrationEmailAsUsername: false  # MUST stay false: managed service-account users have no email (kcc import validates this)
+loginWithEmailAllowed: true
+duplicateEmailsAllowed: false
+resetPasswordAllowed: true
+verifyEmail: true                   # email/password signups must prove the address; Google is trustEmail
+rememberMe: true
+accessTokenLifespan: 300            # 5 min
+ssoSessionIdleTimeout: 1800         # 30 min
+ssoSessionMaxLifespan: 36000        # 10 h
+
+# Audit (authentication layer). User login events + admin events, retained but capped.
+# Complements the APP-side audit (impersonation + actions live there, ADR 0010) — this layer
+# records who authenticated, failed logins, MFA, token issuance, brokered logins, config changes.
+eventsEnabled: true
+eventsListeners:
+  - "jboss-logging"                 # also emits to Keycloak stdout -> future Loki (open-gap #5)
+eventsExpiration: 1209600           # 14 days (cap storage; events are not the long-term record)
+adminEventsEnabled: true
+adminEventsDetailsEnabled: true
+
+# Transactional email via Resend SMTP relay (ADR 0005). Key from SOPS via kcc env-subst.
+smtpServer:
+  host: "smtp.resend.com"
+  port: "587"
+  from: "{{ keycloak_smtp_from }}"
+  fromDisplayName: "{{ keycloak_smtp_from_display }}"
+  ssl: "false"
+  starttls: "true"
+  auth: "true"
+  user: "resend"
+  password: "$(env:RESEND_API_KEY)"
+
+# New users (incl. brokered Google logins) auto-join these groups.
+defaultGroups:
+{% for g in keygrip_default_groups %}
+  - "{{ g }}"
+{% endfor %}
+
+# Composite realm roles — admin ⊃ developer ⊃ viewer; staging-access is orthogonal.
+roles:
+  realm:
+    - name: viewer
+      description: "Read-only baseline"
+    - name: developer
+      description: "Developer access (includes viewer)"
+      composite: true
+      composites:
+        realm:
+          - viewer
+    - name: admin
+      description: "Full access (includes developer + viewer)"
+      composite: true
+      composites:
+        realm:
+          - developer
+    - name: staging-access
+      description: "Access to the staging environment (orthogonal to the tiers)"
+
+# Each group carries its realm role; users join the single highest group that applies.
+groups:
+  - name: admins
+    realmRoles: ["admin"]
+  - name: developers
+    realmRoles: ["developer"]
+  - name: viewers
+    realmRoles: ["viewer"]
+  - name: staging-access
+    realmRoles: ["staging-access"]
+
+clients:
+  - clientId: clip-web
+    name: "Clip Web (Django)"
+    enabled: true
+    protocol: openid-connect
+    publicClient: false              # confidential
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    secret: "$(env:KEYGRIP_WEB_CLIENT_SECRET)"
+    redirectUris:
+{% for uri in clip_web_redirect_uris %}
+      - "{{ uri }}"
+{% endfor %}
+{# Local-dev: register every port the ./mc tool can assign, so OIDC login works on any instance. #}
+{% for port in range(keygrip_mc_web_port_min, keygrip_mc_web_port_max + 1) %}
+      - "http://localhost:{{ port }}/*"
+{% endfor %}
+    webOrigins:
+      - "+"
+    fullScopeAllowed: true               # emit the user's (composite-expanded) realm roles in tokens
+    attributes:
+      "post.logout.redirect.uris": "+"   # allow the redirect URIs as post-logout targets
+    protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        config:
+          "full.path": "false"
+          "claim.name": "groups"
+          "id.token.claim": "true"
+          "access.token.claim": "true"
+          "userinfo.token.claim": "true"
+      - name: realm-roles
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-realm-role-mapper
+        config:
+          "claim.name": "roles"               # flat, composite-expanded effective roles
+          "jsonType.label": "String"
+          "multivalued": "true"
+          "id.token.claim": "true"
+          "access.token.claim": "true"
+          "userinfo.token.claim": "true"
+
+  - clientId: vent-web
+    name: "Vent Chat (Go server RP)"
+    enabled: true
+    protocol: openid-connect
+    publicClient: false              # confidential — the Vent Go server holds the secret
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    secret: "$(env:VENT_WEB_CLIENT_SECRET)"
+    redirectUris:
+{% for uri in vent_web_redirect_uris %}
+      - "{{ uri }}"
+{% endfor %}
+    webOrigins:
+      - "+"
+    fullScopeAllowed: true               # emit composite-expanded realm roles (Vent maps these -> Matrix power levels later)
+    attributes:
+      # POST_LOGIN_URL is chat.vent.dog/, which is not a redirect URI (those are /api/auth/callback),
+      # so "+" wouldn't allow it — list the post-logout targets explicitly (## separated).
+      "post.logout.redirect.uris": "https://chat.vent.dog/*##http://localhost:8080/*##http://localhost:3000/*"
+      "pkce.code.challenge.method": "S256"   # the Go RP uses auth-code + PKCE
+    protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        config:
+          "full.path": "false"
+          "claim.name": "groups"
+          "id.token.claim": "true"
+          "access.token.claim": "true"
+          "userinfo.token.claim": "true"
+      - name: realm-roles
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-realm-role-mapper
+        config:
+          "claim.name": "roles"               # flat, composite-expanded effective roles
+          "jsonType.label": "String"
+          "multivalued": "true"
+          "id.token.claim": "true"
+          "access.token.claim": "true"
+          "userinfo.token.claim": "true"
+
+  - clientId: grafana
+    name: "Grafana"
+    enabled: true
+    protocol: openid-connect
+    publicClient: false              # confidential
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    secret: "$(env:GRAFANA_CLIENT_SECRET)"
+    redirectUris:
+      - "{{ grafana_redirect_uri }}"
+    webOrigins:
+      - "+"
+    fullScopeAllowed: true
+    protocolMappers:
+      - name: realm-roles
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-realm-role-mapper
+        config:
+          "claim.name": "roles"               # Grafana maps these -> Admin/Editor/Viewer
+          "jsonType.label": "String"
+          "multivalued": "true"
+          "id.token.claim": "true"
+          "access.token.claim": "true"
+          "userinfo.token.claim": "true"
+
+  - clientId: glitchtip
+    name: "GlitchTip (error tracking)"
+    enabled: true
+    protocol: openid-connect
+    publicClient: false              # confidential
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    secret: "$(env:GLITCHTIP_CLIENT_SECRET)"
+    redirectUris:
+      - "{{ glitchtip_redirect_uri }}"
+    webOrigins:
+      - "+"
+    fullScopeAllowed: true
+    attributes:
+      "post.logout.redirect.uris": "+"
+
+  - clientId: clip-api-docs
+    name: "Clip API docs (Swagger UI)"
+    enabled: true
+    protocol: openid-connect
+    publicClient: true               # browser client → PKCE, no secret
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    redirectUris:
+{% for uri in api_docs_redirect_uris %}
+      - "{{ uri }}"
+{% endfor %}
+{# Local-dev: Swagger "Authorize" on any ./mc instance port (webOrigins "+" derives CORS from these). #}
+{% for port in range(keygrip_mc_web_port_min, keygrip_mc_web_port_max + 1) %}
+      - "http://localhost:{{ port }}/*"
+{% endfor %}
+    webOrigins:
+      - "+"                          # CORS for the token fetch, derived from redirect URIs
+    attributes:
+      "pkce.code.challenge.method": "S256"
+    fullScopeAllowed: true
+
+  # The app's own admin client: lets Clip create/rotate/revoke customer service-account
+  # clients via the Keycloak Admin API (self-serve API credentials, ADR 0011). Confidential,
+  # service account scoped to realm-management:manage-clients only.
+  - clientId: clip-kc-admin
+    name: "Clip app → Keycloak admin"
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    standardFlowEnabled: false
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: true
+    secret: "$(env:KC_ADMIN_CLIENT_SECRET)"
+
+identityProviders:
+  - alias: google
+    providerId: google
+    enabled: true
+    trustEmail: true                       # Google verifies emails
+    storeToken: false
+    firstBrokerLoginFlowAlias: "first broker login"
+    config:
+      clientId: "{{ google_client_id }}"
+      clientSecret: "$(env:GOOGLE_CLIENT_SECRET)"
+      syncMode: "IMPORT"
+      prompt: "select_account"           # re-prompt Google account choice on re-login
+{% if google_hosted_domain | default('') | length > 0 %}
+      hostedDomain: "{{ google_hosted_domain }}"   # restrict to this Workspace domain
+{% endif %}
+# Service-account roles: Keycloak models a service account as the user
+# `service-account-<clientId>`; kcc grants its roles here (it rejects serviceAccountClientRoles
+# on the client). This lets clip-kc-admin manage clients via the Admin API.
+users:
+  - username: service-account-clip-kc-admin
+    enabled: true
+    clientRoles:
+      realm-management:
+        - manage-clients
+        - view-clients
+{% if env_name == 'dev' %}
+  # Dev-only test fixture: a non-admin (viewer) user with a password, to exercise the MEMBER
+  # experience without a Google account or admin/superuser shortcut. Real users live in
+  # Postgres/PITR — throwaway dev login data; kcc default import.managed.user=no-delete.
+  - username: "test.viewer@example.com"
+    email: "test.viewer@example.com"
+    firstName: "Test"
+    lastName: "Viewer"
+    enabled: true
+    emailVerified: true
+    credentials:
+      - type: password
+        value: "$(env:TEST_VIEWER_PASSWORD)"
+        temporary: false
+    groups:
+      - "/viewers"
+{% endif %}

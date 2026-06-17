@@ -1,0 +1,69 @@
+---
+obs_dir: /opt/keygrip/observability
+prometheus_image: "prom/prometheus:v3.0.1"
+grafana_image: "grafana/grafana:11.4.0"
+node_exporter_image: "prom/node-exporter:v1.8.2"
+prometheus_retention: "15d"            # cap retention (CLAUDE.md)
+prometheus_bind: "127.0.0.1:9090"
+grafana_bind: "127.0.0.1:3000"          # Tailscale Serve fronts this on :8443
+grafana_domain: "vent-keygrip.tail1ec6c3.ts.net"
+grafana_root_url: "https://vent-keygrip.tail1ec6c3.ts.net:8443/"
+grafana_oidc_issuer: "https://id.vent.dog/realms/keygrip"
+grafana_oidc_client_id: "grafana"
+
+# --- Alertmanager → Resend (foundation-backlog: turn dashboards into notifications) ---
+alertmanager_image: "prom/alertmanager:v0.27.0"
+alertmanager_bind: "127.0.0.1:9093"          # loopback; reached on the obs network by Prometheus
+alert_email_to: "jeff.aigner@gmail.com"
+alert_email_from: "noreply@vent.dog"          # Resend-verified domain (ADR 0005)
+alert_smtp_smarthost: "smtp.resend.com:587"
+alert_smtp_username: "resend"                 # Resend SMTP user; password = vault_resend_api_key
+
+# --- Loki log aggregation (open-gaps #5) + Grafana Alloy shipper ---
+loki_image: "grafana/loki:3.3.0"
+alloy_image: "grafana/alloy:v1.5.1"
+loki_retention: "360h"                        # 15d, capped like Prometheus
+loki_bind: "127.0.0.1:3100"                   # loopback (Grafana reaches it over the obs network)
+# Also publish Loki on this box's tailnet IP so the OTHER nodes can push logs to
+# it (vent.dog2's stash audit shipper; future: vent.dog2 Alloy). tailscale0 is
+# already trusted in ufw, so no extra rule. NOTE: Loki has no auth — this makes it
+# read/writable by any tailnet device (same trust model as the tailnet Prometheus).
+loki_tailnet_expose: true
+
+# --- Tempo trace store (infra-gap-analysis.md #7, ADR 0015) ---
+# Receives OTLP from Alloy (alloy:4317 → tempo:4317); Grafana queries it on :3200. Retention is
+# capped in files/tempo.yml (compactor.block_retention) — no host bind, obs-network only.
+tempo_image: "grafana/tempo:2.6.1"
+
+# --- Blackbox exporter (external uptime + TLS cert-expiry; Cloudflare terminates TLS) ---
+blackbox_image: "quay.io/prometheus/blackbox-exporter:v0.25.0"
+blackbox_targets:
+  - "https://app.vent.dog/"
+  - "https://id.vent.dog/realms/keygrip"
+  - "https://vent.dog/"
+
+# stash HA liveness: the two keyed nodes are the `dev` hosts (probed on their
+# tailnet IP:8200); the witness (monitor, homelab NixOS) is NOT in this inventory,
+# so its tailnet target is set here. See the blackbox-stash job + StashNodeDown
+# alert. (~/Projects/stash/docs/DEPLOY.md for the topology.)
+stash_witness_target: "100.109.229.12:8200"   # monitor — sealed vote-only witness
+
+# Direct /metrics scrape (richer than the blackbox liveness probe: no-leader,
+# voter-dropped, keyed-node-sealed). Enabled 2026-06-14 once the stash binary
+# serving /metrics (jaigner-hub/stash#4, stash 86606f9) was rolled out to all 3
+# nodes. Set FALSE again only if rolling back to a binary without /metrics, else
+# the targets 404 and trip TargetDown.
+stash_metrics_enabled: true
+
+# --- ntfy push (Alertmanager -> phone, tailnet-only via Tailscale Serve :8446) ---
+# Self-hosted ntfy server (NOT the personal box). Alertmanager POSTs the webhook to
+# http://ntfy/<topic>?template=alertmanager (ntfy's built-in alertmanager template renders it).
+# The topic name is the access secret (vault_ntfy_topic); the server is reachable only on the
+# obs network (internal publish) + the tailnet (phone subscribe). Android gets background push
+# via a direct persistent connection; iOS background push is routed through ntfy.sh's APNs via
+# ntfy_upstream_base_url (only a hashed wakeup transits ntfy.sh — the alert content is fetched
+# from this server). See docs/adr/0001 (new secret) + foundation-backlog.
+ntfy_image: "binwiederhier/ntfy:v2.24.0"
+ntfy_bind: "127.0.0.1:8083"                                   # Tailscale Serve fronts this on :8446
+ntfy_base_url: "https://vent-keygrip.tail1ec6c3.ts.net:8446"  # tailnet HTTPS (Serve); ntfy needs its own URL
+ntfy_upstream_base_url: "https://ntfy.sh"                     # iOS APNs background-push wakeup path

@@ -1,0 +1,110 @@
+---
+# Self-hosted HA Postgres for dev — Patroni + etcd across the vent.dog pair, with a vote-only
+# NixOS witness ('monitor') over Tailscale. See ADR 0016. All services run as containers (ADR 0006).
+#
+# IMPORTANT (cross-box plane): etcd, Patroni and HAProxy must reach their peers on the OTHER box,
+# so their containers use `network_mode: host` and address peers by **tailnet MagicDNS name**
+# (vent-keygrip / vent-keygrip2 / monitor on tail1ec6c3.ts.net). Host networking also lets the
+# witness (native etcd on NixOS) and these containers speak the same flat tailnet.
+
+pg_ha_dir: /opt/keygrip-pgha
+
+# --- Cluster membership (names MUST be stable + unique; addresses are TAILNET IPs) ---
+# Addresses are tailnet IPs, NOT MagicDNS names: the boxes run accept-dns=false (ADR/role default),
+# so MagicDNS names like 'vent-keygrip2' don't resolve. Tailnet IPs are stable per node.
+# The two Postgres data nodes (Patroni). `name` is the Patroni/etcd member name.
+pg_ha_data_nodes:
+  - { name: "vent-keygrip", address: "100.106.141.112" }
+  - { name: "vent-keygrip2", address: "100.110.200.36" }
+# Maps each inventory host to its Patroni/etcd identity (resolved per-host in tasks/main.yml).
+pg_ha_host_identity:
+  vent.dog: { name: "vent-keygrip", address: "100.106.141.112" }
+  vent.dog2: { name: "vent-keygrip2", address: "100.110.200.36" }
+# All three etcd members = the two data nodes + the NixOS witness 'monitor' (100.109.229.12). The
+# witness runs etcd NATIVELY (services.etcd in ~/Projects/nixos-config); it is NOT managed here —
+# see files/monitor-etcd.nix.example. monitor must be tag:keygrip for the ACL to allow etcd traffic.
+pg_ha_etcd_members:
+  - { name: "vent-keygrip", address: "100.106.141.112" }
+  - { name: "vent-keygrip2", address: "100.110.200.36" }
+  - { name: "monitor", address: "100.109.229.12" }
+pg_ha_etcd_token: "keygrip-pgha"          # initial-cluster-token; MUST match the witness's Nix module
+
+# Per-host identity — set from inventory in tasks (a play-level default that each host overrides).
+# patroni_name / node_address are resolved per-host in tasks/main.yml from the membership list.
+
+# --- Pinned images ---
+pg_ha_postgres_major: "16"
+pg_ha_patroni_image: "keygrip-patroni:local"          # built locally from templates/Dockerfile.patroni.j2
+etcd_image: "quay.io/coreos/etcd:v3.5.16"
+haproxy_image: "haproxy:2.9-alpine"
+pgbouncer_image: "edoburu/pgbouncer:v1.23.1-p2"
+
+# --- etcd tuning (RELAXED for the WAN/Tailscale hop to the homelab witness; ADR 0016) ---
+# Defaults assume a LAN; the witness is across a home link, so loosen to avoid election churn.
+etcd_heartbeat_ms: 250
+etcd_election_ms: 2500
+etcd_client_port: 2379
+etcd_peer_port: 2380
+
+# --- Patroni DCS / failover behaviour ---
+patroni_ttl: 20
+patroni_loop_wait: 3
+patroni_retry_timeout: 5
+patroni_maximum_lag_on_failover: 1048576      # 1 MiB; don't promote a too-far-behind replica
+patroni_rest_port: 8008
+
+# --- Postgres parameters (modest dev box; 7.7 GiB) ---
+pg_ha_parameters:
+  max_connections: "200"
+  shared_buffers: "1GB"
+  effective_cache_size: "3GB"
+  work_mem: "16MB"
+  maintenance_work_mem: "256MB"
+  wal_level: "replica"
+  hot_standby: "on"
+  max_wal_senders: "10"
+  max_replication_slots: "10"
+  wal_keep_size: "512MB"
+
+# --- App database/users (matches clip_web today: db 'clip', app user 'clip') ---
+app_db_name: "clip"
+app_db_user: "clip"
+
+# --- Vent chat (chat.vent.dog): its own app DB + Dendrite's DB, created in the same cluster.
+# Both connect via HAProxy's write port (5000) directly to the leader — NOT through PgBouncer —
+# so PgBouncer/userlist stay clip-only. Passwords in SOPS (vault_vent_db_password / vault_dendrite_db_password).
+vent_db_name: "vent"
+vent_db_user: "vent"
+dendrite_db_name: "dendrite"
+dendrite_db_user: "dendrite"
+
+# --- HAProxy endpoints the app uses (Postgres itself owns host :5432, so HAProxy uses 5000/5001) ---
+# write/leader port (session) — the worker (LISTEN/NOTIFY) connects here; PgBouncer also points here.
+pg_ha_haproxy_write_port: 5000
+# read-only/replicas port (optional, for read traffic) — not used by the app yet.
+pg_ha_haproxy_read_port: 5001
+# Patroni REST stats UI / haproxy stats (tailnet only)
+pg_ha_haproxy_stats_port: 7000
+
+# --- PgBouncer (transaction mode for the WEB tier; ADR 0008 / #8) ---
+# The edoburu/pgbouncer image runs as uid 70 (its 'postgres') and drops to it even if started as
+# root, so userlist.txt must be owned by this uid to stay 0600 yet readable by the container.
+pgbouncer_uid: "70"
+pgbouncer_listen_port: 6432
+pgbouncer_pool_mode: "transaction"
+pgbouncer_max_client_conn: 1000
+pgbouncer_default_pool_size: 20
+# psycopg3 (the app) uses server-side prepared statements; PgBouncer >=1.21 supports them in
+# transaction mode when this is > 0 (it tracks + renames them per server connection).
+pgbouncer_max_prepared_statements: 200
+# Fast failover (leader switchover): retry a dropped backend after 1s, not the 15s default.
+pgbouncer_server_login_retry: 1
+pgbouncer_server_connect_timeout: 5
+
+# --- Backups: nightly pg_dump -> Backblaze B2 via rclone (ADR 0016) ---
+pg_ha_backup_enabled: true
+pg_ha_backup_host: "vent.dog"             # run the dump on ONE node only (avoid double dumps)
+pg_ha_backup_hour: 4                      # 04:00 box time
+pg_ha_b2_bucket: "Backup-jaigner-homelab"
+pg_ha_b2_path: "keygrip-pgha"             # bucket sub-path for these dumps
+pg_ha_backup_retain_days: 14

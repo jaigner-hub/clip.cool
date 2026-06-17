@@ -1,0 +1,17 @@
+---
+keycloak_dir: /opt/keygrip/keycloak
+keycloak_image: quay.io/keycloak/keycloak:26.6.3
+postgres_image: postgres:16-alpine
+postgres_exporter_image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+keycloak_db_name: keycloak
+keycloak_db_user: keycloak
+keycloak_admin_user: admin
+# Bind Keycloak's HTTP port to localhost only — Tailscale Serve fronts it (HTTPS) later.
+keycloak_http_bind: "127.0.0.1:8080"
+# Also publish on the box's TAILNET IP so the second app node (vent.dog2) can reach Keycloak for
+# JWKS + admin API over the tailnet (ADR 0016 app-tier HA; Keycloak itself stays single-instance).
+# The tailnet IP is non-routable from the internet, so this is NOT a public exposure (unlike 0.0.0.0,
+# which a published Docker port would leak past ufw). Set "" to disable.
+keycloak_tailnet_bind: "{{ ansible_host }}"
+# Custom login themes mounted into the container at /opt/keycloak/themes.
+keycloak_themes_dir: /opt/keygrip/keycloak-themes

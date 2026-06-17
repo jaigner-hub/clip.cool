@@ -1,0 +1,136 @@
+{% raw %}
+# Rendered by Ansible (roles/observability). Pure Prometheus config — no Ansible vars; this
+# whole file is wrapped so Prometheus' own {{ $labels }} templating passes through literally.
+# Lean, reliable starter alerts (up / node-exporter metrics that certainly exist); expand once
+# these prove out (app/Keycloak 5xx, cert-expiry-via-blackbox) — see docs/foundation-backlog.md.
+groups:
+  - name: keygrip-infra
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Scrape target down: {{ $labels.job }} ({{ $labels.instance }})"
+          description: "{{ $labels.job }} on {{ $labels.instance }} has been unreachable for 5m."
+
+      - alert: DiskAlmostFull
+        expr: |
+          min by (instance, mountpoint) (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}
+          ) < 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk almost full on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Less than 10% free on {{ $labels.mountpoint }} for 10m."
+
+      - alert: NodeMemoryHigh
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low available memory on {{ $labels.instance }}"
+          description: "Less than 10% memory available for 10m."
+
+  - name: keygrip-app
+    rules:
+      - alert: AppHttp5xx
+        expr: sum(rate(django_http_responses_total_by_status_total{status=~"5.."}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Django app returning 5xx"
+          description: "App 5xx rate is {{ $value | humanize }}/s over the last 5m."
+
+      - alert: Keycloak5xx
+        expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keycloak returning 5xx"
+          description: "Keycloak 5xx rate is {{ $value | humanize }}/s over the last 5m."
+
+  - name: keygrip-blackbox
+    rules:
+      - alert: PublicEndpointDown
+        expr: probe_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Public endpoint unreachable: {{ $labels.instance }}"
+          description: "Blackbox probe to {{ $labels.instance }} has failed for 5m (Cloudflare edge / origin / tunnel)."
+
+      - alert: CertExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 14
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS cert expiring soon: {{ $labels.instance }}"
+          description: "Cert for {{ $labels.instance }} expires in {{ $value | humanize }} days."
+
+  - name: stash
+    rules:
+      # A stash voter is unreachable. 2-of-3 keeps serving, so this is silent
+      # without an alert — exactly how the witness sat dead for ~6h on 2026-06-14.
+      - alert: StashNodeDown
+        expr: probe_success{job="blackbox-stash"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "stash node down: {{ $labels.node }} ({{ $labels.role }})"
+          description: "stash /v1/health on {{ $labels.node }} has failed for 5m — HA is degraded (a voter is down). The cluster still serves on the remaining two, but you've lost fault tolerance; losing one more loses quorum."
+
+      # Belt-and-suspenders: if probes flap individually but the cluster is short
+      # of its 3 voters overall, page once on the aggregate.
+      - alert: StashClusterDegraded
+        expr: count(probe_success{job="blackbox-stash"} == 1) < 3
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "stash cluster degraded: {{ $value }}/3 nodes reachable"
+          description: "Fewer than 3 stash nodes have answered /v1/health for 5m. One more failure loses quorum and the cluster stops serving writes."
+
+  # Metric-based alerts from stash /metrics (job=stash). Inert until that scrape
+  # job is enabled (stash_metrics_enabled) — no series, no fire. These catch the
+  # degradations a liveness probe can't: no leader, a keyed node sealed, a voter
+  # dropped from the raft config.
+  - name: stash-metrics
+    rules:
+      - alert: StashNoLeader
+        expr: max(stash_raft_has_leader{job="stash"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "stash cluster has no raft leader"
+          description: "No stash node reports a leader for 2m — writes are blocked cluster-wide."
+
+      - alert: StashKeyedNodeSealed
+        expr: stash_sealed{job="stash", role="keyed"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "stash keyed node is sealed: {{ $labels.node }}"
+          description: "{{ $labels.node }} is a keyed node but reports sealed=1 for 5m — it has lost its unseal key and cannot read or serve secrets. (The witness is sealed by design and is excluded.)"
+
+      - alert: StashVoterLost
+        expr: min(stash_raft_voters{job="stash"}) < 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "stash raft has fewer than 3 voters"
+          description: "A voter has been dropped from the raft configuration (min reported = {{ $value }}) for 10m — membership, not just liveness, is degraded."
+{% endraw %}

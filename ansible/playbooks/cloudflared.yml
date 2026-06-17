@@ -1,0 +1,11 @@
+---
+# Standalone cloudflared connector — runs on BOTH boxes (each with its own tunnel token: vent.dog ->
+# vent-keygrip, vent.dog2 -> vent-keygrip2). Decoupled from the keycloak stack so Keycloak can run on
+# both nodes. Each tunnel routes id.vent.dog + app.vent.dog to its local services; both are CF LB
+# origins (ADR 0016 #3 + Keycloak HA).
+#   ./ac ansible-playbook playbooks/cloudflared.yml
+- name: cloudflared connectors (both app nodes)
+  hosts: dev
+  become: true
+  roles:
+    - cloudflared

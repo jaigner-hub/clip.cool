@@ -1,0 +1,9 @@
+---
+# Standalone cloudflared connector — for the SECOND app node (vent.dog2), whose tunnel
+# (vent-keygrip2) is an origin in the Cloudflare Load Balancer pool (ADR 0016 #3). vent.dog's
+# connector lives in the keycloak stack. cloudflared_image comes from group_vars/dev/vars.yml.
+cloudflared_dir: /opt/keygrip/cloudflared
+# Per-host tunnel token: vent.dog runs the vent-keygrip tunnel (default); vent.dog2 overrides this to
+# the vent-keygrip2 token in inventory host_vars. Each box's tunnel routes id.vent.dog + app.vent.dog
+# to its LOCAL services, and both are origins in the CF Load Balancers.
+cloudflared_token: "{{ vault_cloudflared_token }}"

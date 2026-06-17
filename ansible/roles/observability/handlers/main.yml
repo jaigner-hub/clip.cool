@@ -1,0 +1,32 @@
+---
+# Prometheus reads prometheus.yml only at start; a bind-mount change needs a restart.
+- name: Restart Prometheus
+  ansible.builtin.command: docker compose -f {{ obs_dir }}/compose.yml restart prometheus
+  changed_when: true
+
+# Alertmanager reads alertmanager.yml only at start; a bind-mount change needs a restart.
+- name: Restart Alertmanager
+  ansible.builtin.command: docker compose -f {{ obs_dir }}/compose.yml restart alertmanager
+  changed_when: true
+
+- name: Restart Loki
+  ansible.builtin.command: docker compose -f {{ obs_dir }}/compose.yml restart loki
+  changed_when: true
+
+- name: Restart Alloy
+  ansible.builtin.command: docker compose -f {{ obs_dir }}/compose.yml restart alloy
+  changed_when: true
+
+# Grafana loads provisioned datasources only at startup — restart when the datasource list changes.
+- name: Restart Grafana
+  ansible.builtin.command: docker compose -f {{ obs_dir }}/compose.yml restart grafana
+  changed_when: true
+
+- name: Restart Blackbox
+  ansible.builtin.command: docker compose -f {{ obs_dir }}/compose.yml restart blackbox
+  changed_when: true
+
+# Tempo reads tempo.yml only at start; a bind-mount change needs a restart.
+- name: Restart Tempo
+  ansible.builtin.command: docker compose -f {{ obs_dir }}/compose.yml restart tempo
+  changed_when: true

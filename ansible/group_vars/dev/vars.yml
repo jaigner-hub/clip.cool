@@ -1,0 +1,22 @@
+---
+# Dev (vent.dog) non-secret vars.
+env_name: dev
+# Keycloak runs in PRODUCTION mode now (clustered HA, ADR 0016) — `start` requires a fixed hostname.
+# OIDC issuer (frontchannel) is id.vent.dog; the admin console is pinned to the tailnet host so it's
+# reachable only over Tailscale (via Tailscale Serve :443 -> :8080, roles/tailscale_serve). Without
+# KC_HOSTNAME_ADMIN, Keycloak forces the admin console onto KC_HOSTNAME and the tailnet /admin link
+# redirects to id.vent.dog (behind CF Access) where it can't be used. Backchannel admin/JWKS calls
+# (kcc over the docker net, app over host.docker.internal) are unaffected by this frontend setting.
+keycloak_hostname: "https://id.vent.dog"
+keycloak_admin_hostname: "https://vent-keygrip.tail1ec6c3.ts.net"
+# Google identity brokering (client ID is not secret; secret is vault_google_client_secret in SOPS).
+google_client_id: "823568948825-c8fm0jo46sskhapl62n7fp99s9ad9oja.apps.googleusercontent.com"
+# Cloudflare Tunnel connector image.
+cloudflared_image: "cloudflare/cloudflared:2026.5.2"
+# Manage Cloudflare Access apps/policies (role default is off; token now has Access:Edit).
+cf_manage_access: true
+
+# stash cutover (ADR 0018): app .env is a symlink to the agent's tmpfs render, so when
+# a secret changes the agent rewrites it and recreates the affected app containers
+# (compose re-reads .env for ${VAR} interpolation). Empty = render only (parallel run).
+stash_on_change: "docker compose -f /opt/keygrip/webapp/compose.yml up -d"

@@ -1,0 +1,105 @@
+# Rendered by Ansible (roles/glitchtip). Self-hosted, Sentry-compatible error tracking.
+# UI via Tailscale Serve (:8445); the app sends events internally to gt-web:8080 over the edge net.
+name: keygrip-glitchtip
+
+x-gt-env: &gt_env
+  DATABASE_URL: "postgresql://{{ glitchtip_db_user }}:${GT_DB_PASSWORD:?}@gt-postgres:5432/{{ glitchtip_db_name }}"
+  REDIS_URL: "redis://gt-redis:6379/0"
+  SECRET_KEY: ${GT_SECRET_KEY:?}
+  GLITCHTIP_DOMAIN: "{{ glitchtip_domain }}"
+  # Behind Tailscale Serve (TLS-terminating proxy → HTTP origin). Granian can't forward the proto,
+  # so a settings override trusts X-Forwarded-Proto (see settings_proxy.py); plus trust the origin.
+  DJANGO_SETTINGS_MODULE: "glitchtip.settings_proxy"
+  CSRF_TRUSTED_ORIGINS: "{{ glitchtip_domain }}"
+  DEFAULT_FROM_EMAIL: "noreply@vent.dog"
+  EMAIL_URL: "smtp+tls://resend:${RESEND_API_KEY:?}@smtp.resend.com:587"
+  CELERY_WORKER_AUTOSCALE: "1,3"
+  ENABLE_OPEN_USER_REGISTRATION: "false"  # first user registered; new members come via invite (email)
+  I_PAID_FOR_GLITCHTIP: "true"            # self-hoster acknowledgement flag (it's donation-ware)
+  # Keycloak SSO — the generic OIDC provider is a DB SocialApp (see tasks); these feed that upsert.
+  GT_OIDC_CLIENT_ID: "glitchtip"
+  GT_OIDC_SECRET: ${GT_OIDC_SECRET:?}
+  GT_OIDC_SERVER_URL: "{{ glitchtip_oidc_server_url }}"
+
+services:
+  gt-postgres:
+    image: {{ postgres_image }}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: {{ glitchtip_db_name }}
+      POSTGRES_USER: {{ glitchtip_db_user }}
+      POSTGRES_PASSWORD: ${GT_DB_PASSWORD:?}
+    volumes:
+      - gtpg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ glitchtip_db_user }} -d {{ glitchtip_db_name }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [gtnet]
+
+  gt-redis:
+    image: {{ redis_image }}
+    restart: unless-stopped
+    networks: [gtnet]
+
+  gt-migrate:
+    image: {{ glitchtip_image }}
+    command: ["./manage.py", "migrate"]
+    environment:
+      <<: *gt_env
+    volumes:
+      - ./settings_proxy.py:/code/glitchtip/settings_proxy.py:ro
+    depends_on:
+      gt-postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [gtnet]
+
+  gt-web:
+    image: {{ glitchtip_image }}
+    restart: unless-stopped
+    environment:
+      <<: *gt_env
+      PORT: "8080"
+    depends_on:
+      gt-postgres:
+        condition: service_healthy
+      gt-redis:
+        condition: service_started
+      gt-migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./settings_proxy.py:/code/glitchtip/settings_proxy.py:ro
+    ports:
+      - "{{ glitchtip_bind }}:8080"                 # loopback — Tailscale Serve (UI)
+      # tailnet IP — 2nd app node (vent.dog2) posts events. Host port 8090 (NOT 8080): host-networked
+      # Keycloak already owns 0.0.0.0:8080 on this box.
+      - "{{ ansible_host }}:8090:8080"
+    networks: [gtnet, edge]   # edge -> the app posts events to gt-web:8080
+
+  gt-worker:
+    image: {{ glitchtip_image }}
+    restart: unless-stopped
+    command: ["./bin/run-celery-with-beat.sh"]
+    environment:
+      <<: *gt_env
+    volumes:
+      - ./settings_proxy.py:/code/glitchtip/settings_proxy.py:ro
+    depends_on:
+      gt-postgres:
+        condition: service_healthy
+      gt-redis:
+        condition: service_started
+      gt-migrate:
+        condition: service_completed_successfully
+    networks: [gtnet]
+
+volumes:
+  gtpg:
+
+networks:
+  gtnet:
+  edge:
+    name: keygrip-edge
+    external: true

@@ -1,0 +1,85 @@
+---
+- name: Ensure app dirs exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ app_dir }}"
+    - "{{ app_dir }}/src"
+
+- name: Archive the committed app/ source (on the controller)
+  delegate_to: localhost
+  ansible.builtin.command:
+    cmd: git -c safe.directory=/work -C /work archive --format=tar -o /tmp/keygrip-app.tar HEAD:app
+  changed_when: true
+
+- name: Copy app source tarball to the box
+  ansible.builtin.copy:
+    src: /tmp/keygrip-app.tar
+    dest: "{{ app_dir }}/src.tar"
+    mode: "0644"
+
+- name: Extract app source
+  ansible.builtin.unarchive:
+    src: "{{ app_dir }}/src.tar"
+    dest: "{{ app_dir }}/src"
+    remote_src: true
+
+- name: Render app compose
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ app_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+# Secrets now come from stash (ADR 0018): the stash agent renders kg/web/* to
+# /run/keygrip/web.env (tmpfs) and we point compose's .env at it via a symlink, so
+# no plaintext secret persists on disk. (env.j2 is kept for break-glass rollback.)
+- name: Check the stash agent has rendered the secrets
+  ansible.builtin.stat:
+    path: /run/keygrip/web.env
+  register: _stash_web_env
+
+- name: Require the stash-rendered env before flipping the app to it
+  ansible.builtin.assert:
+    that: _stash_web_env.stat.exists
+    fail_msg: >-
+      /run/keygrip/web.env is missing — run/start stash-agent first
+      (it is a role in this play; check `systemctl status stash-agent`).
+
+- name: Point app .env at the stash-rendered env (tmpfs; secrets via stash agent)
+  ansible.builtin.file:
+    src: /run/keygrip/web.env
+    dest: "{{ app_dir }}/.env"
+    state: link
+    force: true
+
+- name: Ensure the shared edge network exists
+  ansible.builtin.command: docker network create keygrip-edge
+  register: _edge_net
+  changed_when: _edge_net.rc == 0
+  failed_when: _edge_net.rc != 0 and 'already exists' not in _edge_net.stderr
+
+- name: Build + bring up the app stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dir }}"
+    build: always
+    state: present
+    remove_orphans: true   # drop the retired appdb container (ADR 0016 cutover)
+
+- name: Run database migrations
+  ansible.builtin.command:
+    cmd: docker compose -f {{ app_dir }}/compose.yml exec -T webapp python manage.py migrate --noinput
+  changed_when: true
+
+# The worker (Procrastinate) is brought up by `compose up` BEFORE the migrate task above, so on a
+# fresh DB it crash-loops until the procrastinate_* tables/functions exist. Restart it once after
+# migrations so every deploy lands on a clean worker regardless of DB state.
+- name: Restart the Procrastinate worker (clean start, post-migrate)
+  ansible.builtin.command:
+    cmd: docker compose -f {{ app_dir }}/compose.yml restart worker
+  changed_when: true

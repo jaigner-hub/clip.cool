@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Access pending · keygrip{% endblock %}
+{% block body %}
+<main class="kg-shell">
+  <div class="kg-wordmark">keygrip</div>
+  <section class="kg-card">
+    <h1 class="kg-title">Access pending</h1>
+    <p class="kg-sub">
+      You're signed in as <strong>{{ user.email }}</strong>, but your account isn't part of an
+      organization yet. An administrator needs to add you before you can continue.
+    </p>
+    {% if user.is_staff %}
+    <p class="kg-muted">Staff: create and assign organizations in the <a href="{{ admin_url }}">admin</a>.</p>
+    {% endif %}
+    <form method="post" action="/oidc/logout/">
+      {% csrf_token %}
+      <button type="submit" class="kg-btn">Log out</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

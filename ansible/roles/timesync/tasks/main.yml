@@ -1,0 +1,40 @@
+---
+- name: Ensure systemd-timesyncd is installed
+  ansible.builtin.apt:
+    name: systemd-timesyncd
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure the timesyncd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/timesyncd.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure timesyncd NTP sources (drop-in)
+  ansible.builtin.template:
+    src: timesyncd.conf.j2
+    dest: /etc/systemd/timesyncd.conf.d/10-keygrip.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart systemd-timesyncd
+
+- name: Read current NTP enablement
+  ansible.builtin.command: timedatectl show -p NTP --value
+  register: timesync_ntp_enabled
+  changed_when: false
+
+- name: Enable network time synchronization
+  ansible.builtin.command: timedatectl set-ntp true
+  when: timesync_ntp_enabled.stdout | trim != 'yes'
+  changed_when: true
+
+- name: Ensure systemd-timesyncd is enabled and running
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    enabled: true
+    state: started

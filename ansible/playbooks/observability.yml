@@ -1,0 +1,11 @@
+---
+# Prometheus + Grafana + node-exporter (tailnet-only via Tailscale Serve :8443).
+# Grafana login is gated through Keycloak OIDC (the `grafana` realm client).
+# Secrets: vault_grafana_admin_password, vault_grafana_client_secret (SOPS).
+#   ./ac ansible-playbook playbooks/observability.yml
+# Then re-run serve.yml to expose Grafana on the tailnet.
+- name: Observability (Prometheus + Grafana)
+  hosts: primary
+  become: true
+  roles:
+    - observability

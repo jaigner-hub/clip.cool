@@ -1,0 +1,14 @@
+{# Rendered 0600 by roles/livekit (contains the API key/secret). #}
+port: {{ livekit_signal_port }}
+rtc:
+  tcp_port: {{ livekit_tcp_port }}
+  port_range_start: {{ livekit_udp_start }}
+  port_range_end: {{ livekit_udp_end }}
+  use_external_ip: true
+  congestion_control:
+    enabled: true
+    allow_pause: false
+keys:
+  {{ vault_livekit_api_key }}: {{ vault_livekit_api_secret }}
+logging:
+  level: info

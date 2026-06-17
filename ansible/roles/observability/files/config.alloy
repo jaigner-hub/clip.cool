@@ -1,0 +1,68 @@
+// Grafana Alloy — ship all Docker container logs to Loki (roles/observability).
+// Discovers containers via the Docker API (socket) and streams their logs, so `docker logs`
+// keeps working (we don't change the json-file logging driver). No Ansible vars here.
+
+discovery.docker "all" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "all" {
+  targets = discovery.docker.all.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "stack"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+  rule {
+    target_label = "host"
+    replacement  = "vent.dog"   // distinguish the HA pair (vent.dog2 ships via roles/log_shipper)
+  }
+}
+
+loki.source.docker "all" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.all.output
+  forward_to = [loki.write.default.receiver]
+  refresh_interval = "15s"
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// --- Traces: OTLP gateway → Tempo (infra-gap-analysis.md #7, ADR 0015) ---
+// The app (webapp + Procrastinate worker) exports OTLP/gRPC to alloy:4317 over the shared `edge`
+// network; Alloy batches and forwards to Tempo. Routing through Alloy (not app→Tempo direct) keeps
+// one telemetry agent and one place to add sampling/processing later.
+otelcol.receiver.otlp "default" {
+  grpc { endpoint = "0.0.0.0:4317" }
+  http { endpoint = "0.0.0.0:4318" }
+
+  output {
+    traces = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls { insecure = true }   // intra-stack on the obs network; no TLS between local containers
+  }
+}

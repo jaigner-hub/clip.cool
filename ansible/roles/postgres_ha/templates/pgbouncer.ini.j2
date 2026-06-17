@@ -1,0 +1,27 @@
+# PgBouncer (ADR 0016 / infra-gap #8) — TRANSACTION-mode pooler for the WEB tier only.
+# The Procrastinate WORKER must NOT use this (LISTEN/NOTIFY needs a session connection); it talks
+# to HAProxy's write port directly. PgBouncer connects upstream THROUGH HAProxy's write port, so it
+# always lands on the current leader.
+[databases]
+{{ app_db_name }} = host=127.0.0.1 port={{ pg_ha_haproxy_write_port }} dbname={{ app_db_name }}
+
+[pgbouncer]
+listen_addr = 0.0.0.0
+listen_port = {{ pgbouncer_listen_port }}
+# Plaintext creds live in userlist.txt (rendered 0600 from SOPS) so PgBouncer can both verify the
+# client (scram) and re-authenticate to the backend (scram). No auth_query indirection needed.
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+pool_mode = {{ pgbouncer_pool_mode }}
+max_client_conn = {{ pgbouncer_max_client_conn }}
+default_pool_size = {{ pgbouncer_default_pool_size }}
+# psycopg3 server-side prepared statements through transaction pooling (PgBouncer >=1.21).
+max_prepared_statements = {{ pgbouncer_max_prepared_statements }}
+# Django/psycopg send these; PgBouncer in txn mode must be told to ignore them.
+ignore_startup_parameters = extra_float_digits,options
+admin_users = postgres
+# Fast failover: after the backend (HAProxy->leader) drops during a leader switchover, retry it after
+# 1s instead of the 15s default — otherwise clients keep erroring for ~15s AFTER the new primary is
+# already up. server_connect_timeout caps a single connect attempt.
+server_login_retry = {{ pgbouncer_server_login_retry }}
+server_connect_timeout = {{ pgbouncer_server_connect_timeout }}

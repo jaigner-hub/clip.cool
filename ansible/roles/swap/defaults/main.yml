@@ -1,0 +1,4 @@
+---
+swap_file: /swapfile
+swap_size_mb: 4096        # 4 GiB buffer on a 7.7 GiB box
+swappiness: 10            # prefer RAM; swap only under real pressure

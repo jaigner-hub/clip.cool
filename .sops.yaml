@@ -1,0 +1,15 @@
+# SOPS creation rules — which age recipient encrypts which files.
+# Public recipients only here (safe to commit). Private keys live outside git
+# (~/.config/sops/age/keys.txt locally; on the box per ADR 0001; backup in Vaultwarden + offline).
+creation_rules:
+  # dev (vent.dog)
+  - path_regex: ansible/group_vars/dev/secrets\.sops\.ya?ml$
+    age: age13y6pchtlng6wj8gz26kty0mws3ps6a32pul6cmv2xm26hxzt747q4gxvqe
+
+  # staging — add recipient when the staging age key exists
+  # - path_regex: ansible/group_vars/staging/secrets\.sops\.ya?ml$
+  #   age: <staging recipient>
+
+  # prod — add recipient when the prod age key exists
+  # - path_regex: ansible/group_vars/prod/secrets\.sops\.ya?ml$
+  #   age: <prod recipient>

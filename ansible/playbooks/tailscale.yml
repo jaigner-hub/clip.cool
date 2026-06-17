@@ -1,0 +1,14 @@
+---
+# Install Tailscale and join the tailnet as tag:keygrip.
+#
+# Prereq (Tailscale admin console, one-time):
+#   1. Add `tag:keygrip` to tagOwners in the tailnet ACL.
+#   2. Generate a TAGGED, pre-authorized auth key and put it in SOPS as
+#      vault_tailscale_authkey (group_vars/dev/secrets.sops.yml).
+#
+#   ./ac ansible-playbook playbooks/tailscale.yml
+- name: Tailscale (admin plane) — install + join as tag:keygrip
+  hosts: dev
+  become: true
+  roles:
+    - tailscale

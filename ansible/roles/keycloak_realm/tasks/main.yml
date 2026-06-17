@@ -1,0 +1,88 @@
+---
+- name: Ensure realm-config dir exists
+  ansible.builtin.file:
+    path: "{{ keycloak_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"          # readable by the kcc container's 'nobody' user (no secrets here)
+
+- name: Render realm definition(s)
+  ansible.builtin.template:
+    src: keygrip.yaml.j2
+    dest: "{{ keycloak_config_dir }}/keygrip.yaml"
+    owner: root
+    group: root
+    mode: "0644"          # no secrets — secrets ride the separate 0600 env-file
+
+- name: Render kcc env-file (secrets, not in the mounted config dir)
+  ansible.builtin.template:
+    src: kcc.env.j2
+    dest: "{{ kcc_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Apply realm config via keycloak-config-cli (idempotent)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --network
+      - "{{ keycloak_network }}"
+      # Keycloak is host-networked; reach it via the host gateway (see keycloak_internal_url note).
+      - --add-host
+      - "host.docker.internal:host-gateway"
+      - -v
+      - "{{ keycloak_config_dir }}:/config:ro"
+      - --env-file
+      - "{{ kcc_env_file }}"
+      - -e
+      - "KEYCLOAK_URL={{ keycloak_internal_url }}"
+      - -e
+      - "KEYCLOAK_USER={{ keycloak_admin_user }}"
+      - -e
+      - "KEYCLOAK_AVAILABILITYCHECK_ENABLED=true"
+      - -e
+      - "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT=120s"
+      - -e
+      - "IMPORT_FILES_LOCATIONS=/config/*.yaml"
+      - -e
+      - "IMPORT_VARSUBSTITUTION_ENABLED=true"
+      # Do NOT delete clients absent from this config: customers' self-serve API clients
+      # (kg-*) are created at runtime via the Admin API and must survive realm re-applies.
+      - -e
+      - "IMPORT_MANAGED_CLIENT=no-delete"
+      - "{{ kcc_image }}"
+  register: kcc_run
+  changed_when: true
+
+# The admin console authenticates against the MASTER realm. KC_HOSTNAME_ADMIN only relocates the
+# console assets (adminBaseUrl); the OIDC auth endpoint it redirects login to is the master realm's
+# frontend URL, which defaults to KC_HOSTNAME (id.vent.dog, behind CF Access) — so the tailnet admin
+# link loads but login bounces to id.vent.dog and dies. Pin ONLY the master realm's frontendUrl to
+# the admin host so the whole admin flow stays on the tailnet; the keygrip realm keeps its id.vent.dog
+# issuer (kcc above sets that). Skipped when no admin host is configured (e.g. prod).
+- name: Pin the master realm's frontend URL to the admin host (admin login stays on the tailnet)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      kc() { docker exec -i {{ keycloak_container }} /opt/keycloak/bin/kcadm.sh "$@"; }
+      kc config credentials --server http://localhost:8080 --realm master \
+        --user {{ keycloak_admin_user }} --password "$KC_PASSWORD" >/dev/null
+      current="$(kc get realms/master --fields 'attributes(frontendUrl)' \
+        | grep -oE 'https?://[^"]+' | head -n1 || true)"
+      if [ "$current" = "{{ keycloak_admin_hostname }}" ]; then
+        echo NOOP
+      else
+        kc update realms/master -s 'attributes.frontendUrl={{ keycloak_admin_hostname }}'
+        echo UPDATED
+      fi
+  environment:
+    KC_PASSWORD: "{{ vault_kc_automation_password }}"
+  register: kc_master_frontend
+  changed_when: "'UPDATED' in kc_master_frontend.stdout"
+  when: keycloak_admin_hostname | default('') | length > 0

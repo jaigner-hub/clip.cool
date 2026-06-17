@@ -1,0 +1,59 @@
+---
+- name: Ensure glitchtip dir
+  ansible.builtin.file:
+    path: "{{ glitchtip_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Render .env (secrets)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ glitchtip_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Render compose.yml
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ glitchtip_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Install GlitchTip settings override (proxy proto + SSO linking + CSP)
+  ansible.builtin.copy:
+    src: settings_proxy.py
+    dest: "{{ glitchtip_dir }}/settings_proxy.py"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart GlitchTip app
+
+- name: Install GlitchTip OIDC setup script
+  ansible.builtin.copy:
+    src: setup_oidc.py
+    dest: "{{ glitchtip_dir }}/setup_oidc.py"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Bring up GlitchTip
+  community.docker.docker_compose_v2:
+    project_src: "{{ glitchtip_dir }}"
+    state: present
+    pull: missing
+
+- name: Configure Keycloak OIDC provider in GlitchTip (idempotent SocialApp upsert)
+  ansible.builtin.shell:
+    cmd: >-
+      docker compose -f {{ glitchtip_dir }}/compose.yml exec -T gt-web
+      ./manage.py shell < {{ glitchtip_dir }}/setup_oidc.py
+  register: gt_oidc
+  retries: 5
+  delay: 6
+  until: gt_oidc.rc == 0
+  changed_when: "'created' in gt_oidc.stdout"

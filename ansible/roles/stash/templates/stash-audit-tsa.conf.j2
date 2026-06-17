@@ -1,0 +1,8 @@
+# Managed by Ansible (roles/stash). Sets STASH_AUDIT_TSA so stash anchors its
+# per-node audit chain head to a trusted RFC 3161 timestamp authority, giving the
+# log externally-verifiable timestamps a malicious key holder can't backdate.
+# A systemd drop-in, so the hand-managed main unit (ExecStart + unseal
+# credential) is never touched. stash reads this env as the default for its
+# -audit-tsa flag. Only the 32-byte chain head hash is ever sent to the TSA.
+[Service]
+Environment="STASH_AUDIT_TSA={{ stash_audit_tsa }}"

@@ -1,0 +1,72 @@
+{
+  "uid": "keygrip-postgres",
+  "title": "Keygrip — Postgres",
+  "tags": ["keygrip", "postgres"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "label": "Database",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(pg_up, job)",
+        "query": { "qryType": 1, "query": "label_values(pg_up, job)", "refId": "var" },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "current": { "text": ["All"], "value": ["$__all"] }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Exporter up",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }], "color": { "mode": "thresholds" } }, "overrides": [] },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pg_up{job=~\"$job\"}", "legendFormat": "{{job}}" }]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Active connections",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 20 } }, "overrides": [] },
+      "options": { "legend": { "showLegend": true, "placement": "right", "displayMode": "table", "calcs": ["mean", "max"] } },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job) (pg_stat_database_numbackends{job=~\"$job\"})", "legendFormat": "{{job}}" }]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Commits / rollbacks (per s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 15 } }, "overrides": [] },
+      "options": { "legend": { "showLegend": true, "placement": "bottom", "displayMode": "list" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job) (rate(pg_stat_database_xact_commit{job=~\"$job\"}[5m]))", "legendFormat": "{{job}} commit" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job) (rate(pg_stat_database_xact_rollback{job=~\"$job\"}[5m]))", "legendFormat": "{{job}} rollback" }
+      ]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Cache hit ratio",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 15 } }, "overrides": [] },
+      "options": { "legend": { "showLegend": true, "placement": "bottom", "displayMode": "list" } },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job) (rate(pg_stat_database_blks_hit{job=~\"$job\"}[5m])) / clamp_min(sum by (job) (rate(pg_stat_database_blks_hit{job=~\"$job\"}[5m]) + rate(pg_stat_database_blks_read{job=~\"$job\"}[5m])), 1)", "legendFormat": "{{job}}" }]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Deadlocks (per s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } }, "overrides": [] },
+      "options": { "legend": { "showLegend": true, "placement": "bottom", "displayMode": "list" } },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job) (rate(pg_stat_database_deadlocks{job=~\"$job\"}[5m]))", "legendFormat": "{{job}}" }]
+    }
+  ]
+}

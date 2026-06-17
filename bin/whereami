@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# whereami — detect which Keygrip environment this shell is in and print the commands that work
+# HERE. Ported from zrag's whereami.sh, rewritten for the rebuild's reality (mc worktrees, the
+# main deploy checkout, the vent.dog pair, the untouchable old-zrag boxes).
+#
+#   bin/whereami             full human output (color)
+#   bin/whereami --no-color  full output, no color
+#   bin/whereami --hook      terse, no color — injected into Claude's context on every prompt by
+#                            the UserPromptSubmit hook in .claude/settings.json, so keep it SHORT
+set -uo pipefail
+
+MODE=full COLOR=1
+case "${1:-}" in
+  --hook) MODE=hook COLOR=0 ;;
+  --no-color) COLOR=0 ;;
+esac
+if [ "$COLOR" = 1 ] && [ -t 1 ]; then
+  RED=$'\033[31m' GREEN=$'\033[32m' YELLOW=$'\033[33m' CYAN=$'\033[36m' BOLD=$'\033[1m' NC=$'\033[0m'
+else
+  RED='' GREEN='' YELLOW='' CYAN='' BOLD='' NC=''
+fi
+
+HOST="$(hostname 2>/dev/null || echo unknown)"
+CWD="$(pwd)"
+
+# --- git facts (best effort) ---
+GIT_BRANCH="" GIT_SHA="" GIT_STATE="" GIT_ROOT="" IS_WORKTREE=0
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+  GIT_BRANCH="$(git branch --show-current 2>/dev/null || echo detached)"
+  GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then GIT_STATE="dirty"; else GIT_STATE="clean"; fi
+  # A linked worktree's git-dir lives under the main repo's .git/worktrees/<name>
+  [ "$(git rev-parse --git-dir 2>/dev/null)" != "$(git rev-parse --git-common-dir 2>/dev/null)" ] && IS_WORKTREE=1
+fi
+GIT_LINE="branch ${GIT_BRANCH:-?} @ ${GIT_SHA:-?} (${GIT_STATE:-no git})"
+
+# --- detection (first match wins) ---
+ENV_TYPE=unknown MC_INSTANCE="" WEB_PORT="" DB_PORT="" STACK_STATE=""
+
+if [ -f /.dockerenv ]; then
+  ENV_TYPE=container
+elif [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  ENV_TYPE=ci
+elif [[ "$HOST" == *keygrip-prod* || "$HOST" == *keygrip-staging* ]]; then
+  ENV_TYPE=old-zrag-box
+elif [[ "$HOST" == vent* ]]; then
+  ENV_TYPE=dev-box
+elif [ -n "$GIT_ROOT" ]; then
+  base="$(basename "$GIT_ROOT")"
+  if [ "$IS_WORKTREE" = 1 ] && [[ "$base" == keygrip-* ]]; then
+    ENV_TYPE=mc-worktree
+    MC_INSTANCE="${base#keygrip-}"
+  elif [ -f "$GIT_ROOT/mc" ] && [ -d "$GIT_ROOT/ansible" ]; then
+    ENV_TYPE=main-checkout
+  fi
+fi
+
+# mc stack state + live ports (compose project kg-<name>, containers kg-<name>-webapp-1 / -appdb-1)
+if [ "$ENV_TYPE" = mc-worktree ] && command -v docker >/dev/null 2>&1; then
+  WEB_PORT="$(docker port "kg-${MC_INSTANCE}-webapp-1" 8000 2>/dev/null | sed -n 's/.*:\([0-9]\{1,\}\)$/\1/p' | head -1)"
+  DB_PORT="$(docker port "kg-${MC_INSTANCE}-appdb-1" 5432 2>/dev/null | sed -n 's/.*:\([0-9]\{1,\}\)$/\1/p' | head -1)"
+  if [ -n "$WEB_PORT" ]; then STACK_STATE=running; else STACK_STATE=stopped; fi
+fi
+
+# --- terse mode: a few lines of orientation for Claude, every prompt ---
+if [ "$MODE" = hook ]; then
+  case "$ENV_TYPE" in
+    mc-worktree)
+      echo "[whereami] mc-worktree '${MC_INSTANCE}' — $CWD | $GIT_LINE"
+      if [ "$STACK_STATE" = running ]; then
+        echo "Stack kg-${MC_INSTANCE}: RUNNING — web http://localhost:${WEB_PORT}/ (Postgres localhost:${DB_PORT:-?}); app/ is live-mounted"
+      else
+        echo "Stack kg-${MC_INSTANCE}: NOT RUNNING — start with: ./mc ${MC_INSTANCE} up"
+      fi
+      echo "No host venv — run Django INSIDE the stack: ./mc ${MC_INSTANCE} manage test | manage <cmd> | logs | shell"
+      echo "Deploys/ansible run from the MAIN checkout (not a worktree): cd ~/Projects/keygrip/ansible && ./ac ansible-playbook playbooks/<x>.yml"
+      ;;
+    main-checkout)
+      echo "[whereami] MAIN checkout — $CWD | $GIT_LINE"
+      echo "Deploy checkout: cd ansible && ./ac ansible-playbook playbooks/<keygrip-web|keycloak|cloudflare|observability|...>.yml"
+      echo "Local app instances are mc worktrees at ../keygrip-<name>: ./mc list | ./mc <name> init | ./mc <name> manage test"
+      echo "Dev pair = vent.dog + vent.dog2 (IONOS). NEVER target keygrip-prod/keygrip-staging (OLD zrag prod, DO)."
+      ;;
+    dev-box)
+      echo "[whereami] DEV BOX ${HOST} (vent.dog pair) — the deployed dev stack lives here (/opt/keygrip, containers)"
+      echo "Change via Ansible from a workstation, not by hand-editing on the box. Reboots: the drain unit handles LB drain/undrain."
+      ;;
+    old-zrag-box)
+      echo "[whereami] !!! ${HOST} — OLD zrag PRODUCTION box. The keygrip rebuild does NOT deploy here."
+      echo "Do not disturb the running app, the CI runner (/var/www/zrag-staging/actions-runner-3), or /var/backups/keygrip."
+      ;;
+    container)
+      echo "[whereami] inside a container ($HOST) — manage.py is on PATH's python: python manage.py <cmd>"
+      ;;
+    ci)
+      echo "[whereami] GitHub Actions CI — suite runs on SQLite (dev settings); no external services."
+      ;;
+    *)
+      echo "[whereami] unrecognized environment — $CWD on $HOST | $GIT_LINE"
+      ;;
+  esac
+  exit 0
+fi
+
+# --- full human output ---
+echo ""
+case "$ENV_TYPE" in
+  old-zrag-box)
+    echo "${RED}${BOLD}!!! OLD ZRAG PRODUCTION BOX (${HOST}) !!!${NC}"
+    echo "${RED}The keygrip rebuild does NOT deploy here. Do not disturb the running app,"
+    echo "the CI runner (/var/www/zrag-staging/actions-runner-3), or /var/backups/keygrip.${NC}"
+    echo ""
+    ;;
+  dev-box)
+    echo "${YELLOW}${BOLD}Dev box ${HOST} — live dev stack (vent.dog pair)${NC}"
+    echo ""
+    ;;
+esac
+
+echo "${BOLD}=== ENVIRONMENT ===${NC}"
+echo "Type:      ${CYAN}${BOLD}${ENV_TYPE}${NC}"
+echo "Path:      $CWD"
+echo "Host:      $HOST"
+[ -n "$MC_INSTANCE" ] && echo "Instance:  ${GREEN}${MC_INSTANCE}${NC} (compose project kg-${MC_INSTANCE})"
+if [ -n "$GIT_ROOT" ]; then
+  echo ""
+  echo "${BOLD}=== GIT ===${NC}"
+  echo "Branch:    ${GIT_BRANCH}  @ ${GIT_SHA}"
+  [ "$GIT_STATE" = dirty ] && echo "Status:    ${YELLOW}uncommitted changes${NC}" || echo "Status:    ${GREEN}clean${NC}"
+  [ "$IS_WORKTREE" = 1 ] && echo "Worktree:  linked (main checkout: $(git rev-parse --git-common-dir 2>/dev/null | sed 's|/.git$||'))"
+fi
+
+echo ""
+echo "${BOLD}=== COMMANDS (work HERE) ===${NC}"
+case "$ENV_TYPE" in
+  mc-worktree)
+    if [ "$STACK_STATE" = running ]; then
+      echo "Stack:     ${GREEN}RUNNING${NC} — web http://localhost:${WEB_PORT}/  Postgres localhost:${DB_PORT:-?}"
+    else
+      echo "Stack:     ${YELLOW}NOT RUNNING${NC} — ./mc ${MC_INSTANCE} up"
+    fi
+    echo "Tests:     ./mc ${MC_INSTANCE} manage test            (no host venv — runs in the webapp container)"
+    echo "Manage:    ./mc ${MC_INSTANCE} manage <cmd>"
+    echo "Logs:      ./mc ${MC_INSTANCE} logs [webapp|worker|appdb]"
+    echo "Shell:     ./mc ${MC_INSTANCE} shell | bash"
+    echo "Rebuild:   ./mc ${MC_INSTANCE} build                  (after a requirements change)"
+    echo "Destroy:   ./mc ${MC_INSTANCE} destroy"
+    echo ""
+    echo "${YELLOW}Deploys/ansible do NOT run from a worktree${NC} — use the main checkout:"
+    echo "           cd ~/Projects/keygrip/ansible && ./ac ansible-playbook playbooks/<x>.yml"
+    ;;
+  main-checkout)
+    echo "Deploy:    cd ansible && ./ac ansible-playbook playbooks/<name>.yml"
+    echo "           (keygrip-web · keycloak · keycloak-realm · cloudflare · observability · postgres-ha · drain · serve …)"
+    echo "Instances: ./mc list | ./mc <name> init | ./mc <name> manage test    (worktrees at ../keygrip-<name>)"
+    echo "Secrets:   bin/secrets view|get|set|edit|validate <env> …            (SOPS/age wrapper, ADR 0001)"
+    ;;
+  dev-box)
+    echo "Stack:     /opt/keygrip (Docker Compose, deployed by Ansible)"
+    echo "Inspect:   docker ps · docker logs <container> · journalctl -u keygrip-drain"
+    echo "${YELLOW}Change via Ansible from a workstation — hand-edits here are overwritten on the next deploy.${NC}"
+    ;;
+  container)
+    echo "Manage:    python manage.py <cmd>      (you are inside the app container)"
+    echo "From host: ./mc <instance> manage <cmd> | logs | restart"
+    ;;
+  ci)
+    echo "Suite:     python manage.py test       (SQLite, dev settings — no services)"
+    ;;
+  *)
+    echo "Nothing keygrip-shaped detected here. Expected: the main checkout (~/Projects/keygrip),"
+    echo "an mc worktree (../keygrip-<name>), a vent.dog box, or the app container."
+    ;;
+esac
+
+echo ""
+echo "${BOLD}=== DEV URLS ===${NC}"
+echo "App:       https://app.vent.dog/        (CF LB over the pair; /admin same-origin for SSO staff)"
+echo "Auth:      https://id.vent.dog/         (Keycloak; /admin behind CF Access)"
+echo "Portal:    https://portal.vent.dog/     (Access-gated launchpad)"
+echo "Grafana:   https://vent-keygrip.tail1ec6c3.ts.net:8443/   (tailnet)"
+echo "Breakglass:https://vent-keygrip.tail1ec6c3.ts.net:8447/admin/   (tailnet-only password form, ADR 0002)"
+echo ""

@@ -1,0 +1,4 @@
+---
+# HTTPS port -> local HTTP port mappings exposed on the tailnet via Tailscale Serve.
+tailscale_serve_map:
+  - { https: 443, local: 8080 }   # Keycloak admin console

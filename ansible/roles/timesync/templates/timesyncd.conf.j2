@@ -1,0 +1,6 @@
+{{ ansible_managed | comment }}
+# Keygrip time sync — keep host clocks tight so OIDC/JWT iat/exp validation never
+# trips on clock skew. Managed by roles/timesync; edit there, not here.
+[Time]
+NTP={{ timesync_ntp_servers | join(' ') }}
+FallbackNTP={{ timesync_fallback_ntp_servers | join(' ') }}

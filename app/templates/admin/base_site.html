@@ -1,0 +1,22 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Keygrip admin') }}{% endblock %}
+
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'web/admin.css' %}">{% endblock %}
+
+{# Dev-instance banner on /admin too, matching the app shell. kg-dev pads the body below the bar. #}
+{% block bodyclass %}{{ block.super }}{% if instance_label %} kg-dev{% endif %}{% endblock %}
+
+{% block branding %}
+{% include "_devbar.html" %}
+<div id="site-name"><a href="{% url 'admin:index' %}" class="kg-admin-brand">keygrip</a></div>
+{% if user.is_authenticated %}
+{# Same links as the app shell (templates/app_base.html) so staff navigate consistently. #}
+<nav class="kg-admin-nav">
+  <a href="{% url 'home' %}">Projects</a>
+  {% if is_org_member %}<a href="{% url 'api_credentials' %}">API credentials</a>{% endif %}
+</nav>
+{% endif %}
+{% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}
+{% endblock %}

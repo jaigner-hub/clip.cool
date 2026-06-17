@@ -1,0 +1,18 @@
+---
+# Non-secret defaults shared across environments.
+timezone: UTC
+deploy_user: keygrip
+# Non-root admin users (sudo + SSH key + passwordless sudo); we connect/become via these.
+admin_users:
+  - jeff
+# Pin the TARGET python so modules never run on an unexpected interpreter.
+# Ubuntu 24.04 ships python3.12 at /usr/bin/python3. (Control node is the pinned
+# container per ADR 0007; this pins the managed-node side.)
+ansible_python_interpreter: /usr/bin/python3
+# Docker packages (official repo) installed by the bootstrap playbook.
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin

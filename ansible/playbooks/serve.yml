@@ -1,0 +1,19 @@
+---
+# Expose tailnet-only services over HTTPS via Tailscale Serve.
+# Prereq: HTTPS Certificates enabled in the tailnet (admin console → DNS).
+#   ./ac ansible-playbook playbooks/serve.yml
+# Grafana (:8443) needs the observability stack up first (playbooks/observability.yml).
+- name: Tailscale Serve (HTTPS, tailnet)
+  hosts: primary
+  become: true
+  roles:
+    - role: tailscale_serve
+      vars:
+        tailscale_serve_map:
+          - { https: 443, local: 8080 }    # Keycloak admin console
+          - { https: 8443, local: 3000 }   # Grafana
+          - { https: 8444, local: 8081 }   # Vaultwarden
+          - { https: 8445, local: 8082 }   # GlitchTip (error tracking)
+          - { https: 8446, local: 8083 }   # ntfy (alert push to phone)
+          - { https: 8447, local: 8000 }   # Django app — break-glass /admin password login (the only host that serves the form; ADR 0002)
+          - { https: 8448, target: "https+insecure://100.106.141.112:8200" }  # stash secrets manager (speaks its own mTLS; Serve fronts it with a trusted ts.net cert)

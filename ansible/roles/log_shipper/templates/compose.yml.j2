@@ -1,0 +1,14 @@
+# Rendered by Ansible (roles/log_shipper). Standalone Alloy: ship this box's
+# container logs to the primary's tailnet Loki. No published ports (push-only).
+services:
+  alloy:
+    image: {{ alloy_image }}
+    restart: unless-stopped
+    command: ['run', '--server.http.listen-addr=127.0.0.1:12345', '--storage.path=/var/lib/alloy/data', '/etc/alloy/config.alloy']
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # discover + stream container logs
+      - alloydata:/var/lib/alloy/data
+
+volumes:
+  alloydata:

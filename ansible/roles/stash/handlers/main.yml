@@ -1,0 +1,17 @@
+---
+- name: restart stash
+  ansible.builtin.systemd:
+    name: "{{ stash_service }}"
+    state: restarted
+    daemon_reload: true   # pick up drop-in changes (e.g. STASH_AUDIT_LOKI env)
+
+# The agent shares the binary; restart it too. Tolerated-missing so this role
+# also works on a server-only host that doesn't run the agent.
+- name: restart stash-agent
+  ansible.builtin.systemd:
+    name: "{{ stash_agent_service }}"
+    state: restarted
+  register: _agent_restart
+  failed_when:
+    - _agent_restart is failed
+    - "'Could not find the requested service' not in (_agent_restart.msg | default(''))"

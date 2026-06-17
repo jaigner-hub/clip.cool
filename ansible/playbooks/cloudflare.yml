@@ -1,0 +1,14 @@
+---
+# Codifies the Cloudflare tunnel ingress + DNS for the vent-keygrip tunnel
+# (declarative; reconciles the live config to roles/cloudflare/defaults).
+# Token: vault_cloudflare_api_token (SOPS). API calls run from the control node.
+#   ./ac ansible-playbook playbooks/cloudflare.yml
+#
+# Chosen over Terraform deliberately (ADR 0006 defers Terraform; this keeps one
+# toolchain). The /admin Access app is codified too but gated behind cf_manage_access
+# (default off) until the token gains the Access:Edit scope — see role defaults/notes.
+- name: Cloudflare (tunnel ingress + DNS)
+  hosts: dev
+  gather_facts: false
+  roles:
+    - cloudflare

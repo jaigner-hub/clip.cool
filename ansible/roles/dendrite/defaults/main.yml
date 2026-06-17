@@ -1,0 +1,11 @@
+---
+# Dendrite (Matrix homeserver) for Vent. Single active instance on vent.dog — a monolith can't share
+# its Postgres with a second instance (REBOOT.md active/passive). DB lives in the shared HA cluster
+# (role + database created by postgres_ha); Dendrite reaches it via HAProxy's write port on the host.
+dendrite_dir: /opt/keygrip/dendrite
+dendrite_image: "matrixdotorg/dendrite-monolith:v0.15.2"
+dendrite_server_name: "vent.dog"          # suffix on Matrix user IDs (@k<sub>:vent.dog)
+dendrite_db_user: "dendrite"
+dendrite_db_name: "dendrite"
+dendrite_db_host: "host.docker.internal"  # HAProxy on the host (containers reach via host-gateway)
+dendrite_db_port: "5000"                  # HAProxy write/leader port (session)

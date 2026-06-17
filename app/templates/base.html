@@ -1,0 +1,24 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# stop HTMX injecting an inline <style> (would violate style-src 'self') #}
+  <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+  <title>{% block title %}keygrip{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'web/keygrip.css' %}">
+  {% comment %}
+  Frontend baseline: HTMX + Alpine (CSP build). Any inline script tag must carry
+  nonce="{{ request.csp_nonce }}" (strict CSP, no unsafe-inline) — see web/middleware.py.
+  ({% comment %} is required here: a multi-line {# #} is not a valid Django comment.)
+  {% endcomment %}
+  <script src="{% static 'web/vendor/htmx.min.js' %}" defer></script>
+  <script src="{% static 'web/vendor/alpine-csp.min.js' %}" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body class="{% if instance_label %}kg-dev {% endif %}{% if request.user.is_hijacked %}kg-imp{% endif %}">
+  {% include "_devbar.html" %}
+  {% if request.user.is_hijacked %}{% include "hijack/notification.html" %}{% endif %}
+  {% block body %}{% endblock %}
+</body>
+</html>

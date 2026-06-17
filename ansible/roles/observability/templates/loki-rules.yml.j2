@@ -1,0 +1,23 @@
+# Rendered by Ansible (roles/observability) → /etc/loki/rules/fake/break-glass.yml.
+# Loki ruler alert: fires when the app emits the break-glass login marker (ADR 0002). The marker
+# string must match web/signals.py (BREAK_GLASS_MARKER). `stack` is the compose-project label
+# Alloy attaches; the app runs in the clip-web stack. Alerts go to Alertmanager → email + ntfy.
+groups:
+  - name: break-glass
+    rules:
+      - alert: BreakGlassLogin
+        # 1m window so each isolated login is a clean fire→resolve cycle (a longer window bridges
+        # separate logins into one continuous firing, which Alertmanager would notify only once per
+        # repeat_interval). Tight AM timing for this alert lives in alertmanager.yml's sub-route.
+        expr: |
+          sum(count_over_time({stack="clip-web"} |= "BREAK_GLASS_LOGIN" [1m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Break-glass superuser logged into the app admin"
+          description: >-
+            The local break-glass account authenticated via /admin (ModelBackend), bypassing
+            Keycloak/Google SSO. If this was NOT a deliberate emergency action, treat it as a
+            potential compromise: rotate the break-glass password (Vaultwarden + offline copy,
+            ADR 0003) and review access. Audit detail is in Loki: {stack="clip-web"} |=
+            "BREAK_GLASS_LOGIN".

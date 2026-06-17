@@ -1,0 +1,5 @@
+---
+vaultwarden_dir: /opt/keygrip/vaultwarden
+vaultwarden_image: "vaultwarden/server:1.36.0"
+vaultwarden_bind: "127.0.0.1:8081"     # Tailscale Serve fronts this on :8444
+vaultwarden_domain: "https://vent-keygrip.tail1ec6c3.ts.net:8444"

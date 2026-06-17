@@ -1,0 +1,21 @@
+---
+# Self-hosted HA Postgres for dev (ADR 0016): Patroni + etcd + HAProxy + PgBouncer across the
+# vent.dog pair. The 3rd etcd member (witness) is the NixOS box 'monitor', configured separately
+# from ~/Projects/nixos-config (see roles/postgres_ha/files/monitor-etcd.nix.example) — NOT here.
+#
+# Prereqs (see roles/postgres_ha/README.md):
+#   - Both boxes are tag:keygrip on the tailnet (playbooks/tailscale.yml). monitor is tag:keygrip too.
+#   - Tailnet ACL allows tag:keygrip <-> tag:keygrip on 2379,2380,5432,8008.
+#   - The witness etcd member is up on 'monitor'.
+#   - SOPS has: vault_pg_superuser_password, vault_pg_replication_password,
+#     vault_patroni_restapi_password, vault_app_db_password (exists), vault_b2_account_id, vault_b2_app_key.
+#
+#   ./ac ansible-playbook playbooks/postgres-ha.yml
+#
+# ⚠️ This stands up a NEW cluster ALONGSIDE the existing single-node appdb. It does NOT touch
+# keygrip_web or migrate data — the app cutover is a separate, deliberate step (see README).
+- name: Self-hosted HA Postgres (Patroni + etcd) — ADR 0016
+  hosts: dev
+  become: true
+  roles:
+    - postgres_ha

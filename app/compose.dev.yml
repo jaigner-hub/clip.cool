@@ -1,0 +1,33 @@
+# Local dev Postgres for the Procrastinate queue (ADR 0008). OPTIONAL — default dev is SQLite.
+# This is for running the worker end-to-end on your machine; prod/vent.dog use the stack in
+# ansible/roles/keygrip_web (a separate, self-contained compose).
+#
+#   docker compose -f compose.dev.yml up -d
+#   export DEV_DB=postgres DB_HOST=localhost DB_PORT=5433 DB_NAME=keygrip DB_USER=keygrip DB_PASSWORD=keygrip
+#   python manage.py migrate
+#   python manage.py procrastinate worker --queues default,batch,workflow,aeo   # shell 1
+#   python manage.py runserver                                                   # shell 2
+#
+# Monitor at http://localhost:8000/admin/ — jobs under "Procrastinate", workers under "Web".
+name: keygrip-dev
+
+services:
+  devdb:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keygrip
+      POSTGRES_USER: keygrip
+      POSTGRES_PASSWORD: keygrip
+    ports:
+      - "5433:5432"   # host 5433 -> container 5432; matches DB_PORT default in settings/dev.py
+    volumes:
+      - devdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keygrip -d keygrip"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  devdata:

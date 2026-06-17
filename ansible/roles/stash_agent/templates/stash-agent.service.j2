@@ -1,0 +1,31 @@
+# {{ ansible_managed }}
+# Renders clip/web/* from the stash cluster into {{ stash_env_out }} (tmpfs) and
+# recreates the clip app stack when a secret changes. Token is a host-bound
+# systemd credential (decrypted to $CREDENTIALS_DIRECTORY tmpfs at start).
+[Unit]
+Description=stash agent (clip web secrets -> {{ stash_env_out }})
+After=network-online.target stash.service
+Wants=network-online.target
+Requires=stash.service
+
+[Service]
+Type=exec
+# /run/{{ stash_run_subdir }} 0700 on tmpfs; preserve across restart so the
+# rendered env isn't yanked out from under a running app container.
+RuntimeDirectory={{ stash_run_subdir }}
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+LoadCredentialEncrypted=stash-token:{{ stash_token_cred }}
+ExecStart=/bin/sh -c 'exec {{ stash_agent_bin }} agent \
+  -auto -prefix {{ stash_prefix }}{% if stash_overlay %} -overlay {{ stash_overlay }}{% endif %} \
+  -api {{ stash_api }} -ca {{ stash_ca }} \
+  -token "$(cat "$CREDENTIALS_DIRECTORY/stash-token")" \
+  -out {{ stash_env_out }} -cache {{ stash_env_cache }} \
+  -interval {{ stash_interval }} \
+  -on-change "{{ stash_on_change }}"'
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

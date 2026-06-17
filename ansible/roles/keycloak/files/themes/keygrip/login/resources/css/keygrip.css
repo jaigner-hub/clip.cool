@@ -1,0 +1,122 @@
+/* Keygrip login branding — layered over keycloak.v2 (PatternFly v5).
+   Brand tokens mirror keygrip.ai/static/css/public-brand.css — see docs/style-guide.md. */
+
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('../fonts/PlusJakartaSans-400.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('../fonts/PlusJakartaSans-500.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('../fonts/PlusJakartaSans-600.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('../fonts/PlusJakartaSans-700.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+
+@font-face {
+  font-family: 'Tid';
+  src: url('../fonts/Tid-Light.woff2') format('woff2');
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Tid';
+  src: url('../fonts/Tid-Regular.woff2') format('woff2');
+  font-weight: 400 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Tid';
+  src: url('../fonts/Tid-Bold.woff2') format('woff2');
+  font-weight: 600 700; font-style: normal; font-display: swap;
+}
+
+:root {
+  --kg-cyan: #61D9EF;
+  --kg-cyan-strong: #2bb6d1;
+  --kg-ink: #0F172A;
+  --kg-grey: #475569;
+  --kg-canvas: #EEF2F6;
+  --kg-surface: #FFFFFF;
+  --kg-line: #E2E8F0;
+  --kg-serif: 'Tid', Georgia, "Times New Roman", serif;
+  --kg-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --kg-radius: 14px;
+}
+
+/* recolor PatternFly's blue accents to brand cyan + the card top bar */
+.login-pf,
+:root {
+  --keycloak-card-top-color: var(--kg-cyan);
+  --pf-v5-global--primary-color--100: var(--kg-cyan);
+  --pf-v5-global--primary-color--200: var(--kg-cyan-strong);
+  --pf-v5-global--active-color--100: var(--kg-cyan);
+  --pf-v5-global--link--Color: var(--kg-cyan-strong);
+  --pf-v5-global--link--Color--hover: var(--kg-ink);
+}
+
+/* base type + background */
+.login-pf body,
+body.login-pf {
+  background: var(--kg-canvas) !important;
+  font-family: var(--kg-sans);
+}
+.login-pf body { background-image: none !important; }
+
+/* brand wordmark (realm display name) -> Tid serif, ink */
+#kc-header-wrapper {
+  font-family: var(--kg-serif);
+  font-size: 4rem;
+  font-weight: 400;
+  letter-spacing: 0 !important;          /* override v2's 3px tracking */
+  text-transform: lowercase;
+  color: var(--kg-ink) !important;       /* keycloak.v2 defaults this to white */
+  padding: 2.25rem 0 1.5rem;
+  white-space: normal;
+}
+#kc-header-wrapper a,
+#kc-header-wrapper span { color: var(--kg-ink) !important; }
+
+/* card */
+.pf-v5-c-login__main {
+  border-radius: var(--kg-radius) !important;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.10) !important;
+}
+.pf-v5-c-login__main-header { border-top-color: var(--kg-cyan) !important; }
+
+/* headings -> Tid serif, ink */
+#kc-page-title,
+.pf-v5-c-title,
+h1, h2 {
+  font-family: var(--kg-serif) !important;
+  color: var(--kg-ink) !important;
+  font-weight: 600;
+}
+
+/* primary (Sign in) -> cyan w/ ink text */
+.pf-v5-c-button.pf-m-primary {
+  background-color: var(--kg-cyan) !important;
+  color: var(--kg-ink) !important;
+  border: none !important;
+  font-weight: 600 !important;
+}
+.pf-v5-c-button.pf-m-primary:hover,
+.pf-v5-c-button.pf-m-primary:focus {
+  background-color: var(--kg-cyan-strong) !important;
+  color: var(--kg-ink) !important;
+}
+
+/* social / secondary -> outlined */
+.pf-v5-c-button.pf-m-secondary,
+.pf-v5-c-button.pf-m-control,
+#kc-social-providers .pf-v5-c-button {
+  background: transparent !important;
+  color: var(--kg-ink) !important;
+  border: 1px solid var(--kg-line) !important;
+}
+.pf-v5-c-button.pf-m-secondary:hover,
+#kc-social-providers .pf-v5-c-button:hover {
+  border-color: var(--kg-ink) !important;
+  background: rgba(15, 23, 42, 0.04) !important;
+}
+
+/* links + input focus -> cyan accent */
+a,
+.pf-v5-c-button.pf-m-link { color: var(--kg-cyan-strong) !important; }
+.pf-v5-c-form-control:focus,
+input:focus {
+  border-color: var(--kg-cyan) !important;
+  outline-color: var(--kg-cyan) !important;
+  box-shadow: 0 0 0 2px rgba(97, 217, 239, 0.35) !important;
+}

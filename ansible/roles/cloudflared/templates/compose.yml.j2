@@ -1,0 +1,19 @@
+# Rendered by Ansible (roles/cloudflared). A single tunnel connector on the shared edge net so it can
+# reach the app (webapp:8000). Ingress is remotely-managed (set via the cloudflare role / CF API).
+name: keygrip-cloudflared
+
+services:
+  cloudflared:
+    image: {{ cloudflared_image }}
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:?}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach host-networked Keycloak (id.vent.dog -> :8080)
+    networks: [edge]   # edge -> reach webapp:8000
+
+networks:
+  edge:
+    name: keygrip-edge
+    external: true

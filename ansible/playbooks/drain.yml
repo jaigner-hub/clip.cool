@@ -1,0 +1,11 @@
+---
+# Graceful-reboot drain helper + unattended security updates with staggered graceful auto-reboot
+# (ADR 0016). Installs keygrip-drain.service on both boxes — drains from the CF LB on shutdown,
+# undrains on boot — so any reboot (manual `reboot` OR an unattended kernel update) is
+# zero-interruption. Manual one-shot drain (no reboot): `sudo /opt/keygrip/drain/drain.sh drain`.
+#   ./ac ansible-playbook playbooks/drain.yml
+- name: Drain helper + graceful auto-reboot (both app nodes)
+  hosts: dev
+  become: true
+  roles:
+    - drain

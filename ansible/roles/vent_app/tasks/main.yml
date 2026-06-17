@@ -1,0 +1,46 @@
+---
+- name: Ensure vent dir exists
+  ansible.builtin.file:
+    path: "{{ vent_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render vent-web nginx config
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ vent_dir }}/nginx.conf"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render vent-server .env (secrets)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ vent_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Render vent compose
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ vent_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure the shared edge network exists
+  ansible.builtin.command: docker network create keygrip-edge
+  register: _edge_net
+  changed_when: _edge_net.rc == 0
+  failed_when: _edge_net.rc != 0 and 'already exists' not in _edge_net.stderr
+
+# pull: always so a re-pushed :phase1/:latest tag is picked up on redeploy.
+- name: Pull + bring up the Vent app stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ vent_dir }}"
+    state: present
+    pull: always

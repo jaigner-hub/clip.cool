@@ -1,0 +1,45 @@
+# Ansible inventory.
+#
+# ⚠️ SAFETY: this inventory targets ONLY the new-platform infra dev box.
+# It must NEVER include `keygrip-prod` or `keygrip-staging` — those run the OLD
+# zrag production app + CI runner and are off-limits (see CLAUDE.md).
+all:
+  children:
+    # `primary` = single-instance services that live on vent.dog ONLY (Keycloak, observability,
+    # GlitchTip, Vaultwarden, Tailscale Serve). `dev` = both boxes (host-level + the HA app/DB tier).
+    # vent.dog2 is a second APP node (keygrip_web + cloudflared + a Postgres data node), NOT a place
+    # for the single-instance services — those playbooks target `primary` so they never hit it.
+    primary:
+      hosts:
+        vent.dog: {}
+    dev:
+      hosts:
+        vent.dog:
+          ansible_host: 100.106.141.112   # tailnet IP (admin plane); stable per-device.
+                                          # MagicDNS name vent-keygrip works from tailnet devices,
+                                          # but the container resolves via the IP.
+          ansible_user: jeff              # non-root admin; privileged tasks use become (sudo)
+        vent.dog2:                        # HA pair box (IONOS) — second origin behind the CF LB +
+                                          # second Postgres data node (Patroni/etcd, ADR 0016).
+          ansible_host: 100.110.200.36    # tailnet IP; MagicDNS name vent-keygrip2.
+          ansible_user: jeff
+          tailscale_hostname: vent-keygrip2   # default is vent-keygrip (vent.dog); override here.
+          cloudflared_token: "{{ vault_cloudflared_token_2 }}"   # vent.dog2's tunnel (vent-keygrip2)
+          # vent.dog2 now runs its OWN Keycloak (HA cluster node) → the app uses the LOCAL keycloak:8080
+          # (the keygrip_web default), so no keycloak_internal_base override here anymore.
+          # Observability stack runs on vent.dog only — vent.dog2 pushes telemetry to it over the
+          # tailnet (Alloy + GlitchTip publish on vent.dog's tailnet IP 100.106.141.112; ufw allows it).
+          app_otel_endpoint: "http://100.106.141.112:4317"
+          app_sentry_dsn: "{{ vault_sentry_dsn | replace('gt-web:8080', '100.106.141.112:8090') }}"
+          # stash agent: overlay this box's per-host secrets over the kg/web base.
+          # Keys directly under here win by env name — e.g. kg/web/vent.dog2/sentry_dsn
+          # provides the tailnet-rewritten SENTRY_DSN (mirrors app_sentry_dsn above).
+          stash_overlay: "kg/web/vent.dog2"
+          # Auto-reboot window staggered 1h after vent.dog (default 04:00) so they never reboot together.
+          drain_reboot_time: "05:00"
+      # NOTE: the etcd witness ("monitor", homelab) is a NixOS box configured from
+      # ~/Projects/nixos-config — NOT managed by this Ansible inventory (ADR 0016).
+    # staging:                        # added post-funding (new server, NOT keygrip-staging)
+    #   hosts: {}
+    # prod:                           # added post-funding (new servers)
+    #   hosts: {}

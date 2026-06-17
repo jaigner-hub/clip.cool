@@ -1,0 +1,27 @@
+# Blackbox exporter (roles/observability). One lenient HTTPS module — accepts auth/OIDC/Access
+# redirects as "up" (the point is reachability + cert expiry, not the body). No Ansible vars.
+modules:
+  http_2xx:
+    prober: http
+    timeout: 8s
+    http:
+      method: GET
+      valid_status_codes: [200, 301, 302, 303, 307, 308, 401, 403]
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+
+  # stash cluster nodes (internal, tailnet). They serve HTTPS under stash's OWN
+  # private CA, which isn't in the blackbox trust store, so we skip verification —
+  # this probe is about liveness (is the node up?), not cert validity. /v1/health
+  # returns 200 whether the node is sealed (witness) or unsealed (keyed), so a 200
+  # == process up and serving; node down/stopped == probe fails == alert.
+  stash_health:
+    prober: http
+    timeout: 8s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      tls_config:
+        insecure_skip_verify: true

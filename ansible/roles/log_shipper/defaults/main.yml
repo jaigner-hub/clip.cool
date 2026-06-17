@@ -1,0 +1,10 @@
+---
+# log_shipper — runs a standalone Grafana Alloy that streams this box's Docker
+# container logs to the observability Loki on the PRIMARY box's tailnet IP. For
+# the non-primary app nodes (vent.dog2), whose logs otherwise never reach Loki
+# (the observability stack — including its own Alloy — runs on `primary` only).
+# Each box labels its logs host=<inventory_hostname> so the HA pair is distinct.
+log_shipper_dir: /opt/keygrip/log-shipper
+alloy_image: "grafana/alloy:v1.5.1"   # pin matches roles/observability
+# Loki is published on the primary's tailnet IP (roles/observability: loki_tailnet_expose).
+log_shipper_loki: "{{ hostvars[groups['primary'][0]].ansible_host }}:3100"

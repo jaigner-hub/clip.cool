@@ -1,0 +1,65 @@
+# Rendered by Ansible (roles/postgres_ha). ADR 0016. One stack per data node:
+#   etcd (DCS) + Patroni/Postgres + HAProxy (leader routing) + PgBouncer (web-tier txn pool).
+# ALL host-networked: the cluster plane (etcd peers, Patroni replication, HAProxy health checks)
+# must reach the OTHER box + the witness over the tailnet by MagicDNS name.
+#
+# Host port map (per box): 5432 Postgres · 8008 Patroni REST · 2379/2380 etcd · 5000/5001 HAProxy
+# write/read · 6432 PgBouncer · 7000 HAProxy stats. App containers reach 5000/6432 via host-gateway.
+name: keygrip-pgha
+
+services:
+  etcd:
+    image: {{ etcd_image }}
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      ETCD_NAME: "{{ patroni_name }}"
+      ETCD_DATA_DIR: /etcd-data
+      ETCD_INITIAL_CLUSTER_TOKEN: "{{ pg_ha_etcd_token }}"
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER: "{% for m in pg_ha_etcd_members %}{{ m.name }}=http://{{ m.address }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %}"
+      # Bind to the TAILNET IP (+ loopback for clients) — never the public IONOS interface.
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: "http://{{ node_address }}:{{ etcd_peer_port }}"
+      ETCD_LISTEN_PEER_URLS: "http://{{ node_address }}:{{ etcd_peer_port }}"
+      ETCD_ADVERTISE_CLIENT_URLS: "http://{{ node_address }}:{{ etcd_client_port }}"
+      ETCD_LISTEN_CLIENT_URLS: "http://{{ node_address }}:{{ etcd_client_port }},http://127.0.0.1:{{ etcd_client_port }}"
+      # Relaxed for the Tailscale/WAN hop to the homelab witness (ADR 0016).
+      ETCD_HEARTBEAT_INTERVAL: "{{ etcd_heartbeat_ms }}"
+      ETCD_ELECTION_TIMEOUT: "{{ etcd_election_ms }}"
+      ETCD_ENABLE_V2: "false"
+    volumes:
+      - etcd-data:/etcd-data
+
+  patroni:
+    build:
+      context: .
+      dockerfile: Dockerfile.patroni
+    image: "{{ pg_ha_patroni_image }}"
+    restart: unless-stopped
+    network_mode: host
+    env_file: [.env]
+    volumes:
+      - ./patroni.yml:/etc/patroni/patroni.yml:ro
+      - pgdata:/var/lib/postgresql/data
+    depends_on: [etcd]
+
+  haproxy:
+    image: "{{ haproxy_image }}"
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on: [patroni]
+
+  pgbouncer:
+    image: "{{ pgbouncer_image }}"
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on: [haproxy]
+
+volumes:
+  etcd-data:
+  pgdata:

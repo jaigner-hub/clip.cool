@@ -1,0 +1,4 @@
+---
+# Non-root admin users (sudo, SSH-key, passwordless sudo). Override in group_vars.
+admin_users:
+  - jeff

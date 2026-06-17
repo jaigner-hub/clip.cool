@@ -1,0 +1,12 @@
+name: keygrip-livekit
+
+services:
+  livekit:
+    image: {{ livekit_image }}
+    restart: unless-stopped
+    # Host networking: bypasses docker-proxy for UDP, which otherwise adds jitter that wrecks TWCC
+    # bandwidth estimation. LiveKit binds 7880/7881 + the UDP range directly on the host interface.
+    network_mode: host
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - {{ livekit_dir }}/livekit.yaml:/etc/livekit.yaml:ro

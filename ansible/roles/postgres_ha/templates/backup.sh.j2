@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Nightly logical backup of the app DB -> Backblaze B2 (ADR 0016). Dumps via HAProxy (so it always
+# hits the current leader), streams gzipped to B2 with rclone (config via env). This is the
+# dev-grade recovery FLOOR — not PITR. Replication is NOT backup (it replicates a DROP TABLE).
+set -euo pipefail
+cd "{{ pg_ha_dir }}"
+set -a; . "{{ pg_ha_dir }}/.env"; set +a
+
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+DEST="b2:{{ pg_ha_b2_bucket }}/{{ pg_ha_b2_path }}/{{ app_db_name }}-${STAMP}.sql.gz"
+
+# rclone B2 remote 'b2' purely from env (no on-disk rclone.conf).
+export RCLONE_CONFIG_B2_TYPE=b2
+export RCLONE_CONFIG_B2_ACCOUNT="${B2_ACCOUNT_ID}"
+export RCLONE_CONFIG_B2_KEY="${B2_APP_KEY}"
+
+docker compose -f "{{ pg_ha_dir }}/compose.yml" exec -T \
+  -e PGPASSWORD="${APP_DB_PASSWORD}" patroni \
+  pg_dump -h 127.0.0.1 -p {{ pg_ha_haproxy_write_port }} -U {{ app_db_user }} -d {{ app_db_name }} \
+  | gzip | rclone rcat "${DEST}"
+
+# Retention: prune dumps older than the retention window.
+rclone delete --min-age {{ pg_ha_backup_retain_days }}d \
+  "b2:{{ pg_ha_b2_bucket }}/{{ pg_ha_b2_path }}/" || true
+
+echo "$(date -u +%FT%TZ) backup OK -> ${DEST}"

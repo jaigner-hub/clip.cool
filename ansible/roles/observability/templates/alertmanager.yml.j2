@@ -1,0 +1,39 @@
+# Rendered by Ansible (roles/observability) at 0600 — contains the Resend SMTP key + ntfy topic.
+# One receiver, two channels (every alert fans out to both — they fail independently):
+#   - email via Resend SMTP relay (ADR 0005); password is vault_resend_api_key.
+#   - ntfy push to the phone; the topic (vault_ntfy_topic) doubles as the access secret, so this
+#     file stays 0600/no_log. ntfy's built-in `alertmanager` template renders the webhook JSON.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: all
+  group_by: ['alertname', 'job']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Break-glass logins are security EVENTS, not steady-state conditions (ADR 0002). Notify fast
+    # and re-notify within the hour so a second login isn't swallowed by the 4h default. Paired
+    # with the Loki rule's short (1m) window so each login is a distinct fire→resolve cycle.
+    - matchers:
+        - 'alertname = "BreakGlassLogin"'
+      receiver: all
+      group_wait: 5s
+      group_interval: 1m
+      repeat_interval: 1h
+
+receivers:
+  - name: all
+    email_configs:
+      - to: '{{ alert_email_to }}'
+        from: '{{ alert_email_from }}'
+        smarthost: '{{ alert_smtp_smarthost }}'
+        auth_username: '{{ alert_smtp_username }}'
+        auth_password: '{{ vault_resend_api_key }}'
+        require_tls: true
+        send_resolved: true
+    webhook_configs:
+      # ntfy on the obs network (:80); ?template=alertmanager => ntfy formats the firing/resolved JSON.
+      - url: 'http://ntfy/{{ vault_ntfy_topic }}?template=alertmanager'
+        send_resolved: true

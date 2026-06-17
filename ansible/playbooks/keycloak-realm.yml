@@ -1,0 +1,9 @@
+---
+# Apply the keygrip realm to the running Keycloak via keycloak-config-cli.
+# Prereqs: keycloak stack running; SOPS vars vault_kc_admin_password, vault_keygrip_web_client_secret.
+#   ./ac ansible-playbook playbooks/keycloak-realm.yml
+- name: Keycloak realm config (keygrip)
+  hosts: primary
+  become: true
+  roles:
+    - keycloak_realm

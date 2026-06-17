@@ -1,0 +1,6 @@
+---
+- name: restart stash-agent
+  ansible.builtin.systemd:
+    name: stash-agent.service
+    state: restarted
+    daemon_reload: true

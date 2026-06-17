@@ -1,0 +1,8 @@
+---
+# Add a swap file + tune swappiness on the dev box (no swap by default).
+#   ./ac ansible-playbook playbooks/swap.yml
+- name: Swap
+  hosts: dev
+  become: true
+  roles:
+    - swap

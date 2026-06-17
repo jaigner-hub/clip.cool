@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{# Authenticated app chrome: brand + nav + org/account header. Org from request.organization. #}
+{% block body %}
+<div class="kg-app">
+  <header class="kg-header">
+    <a class="kg-brand" href="{% url 'home' %}">keygrip</a>
+    <nav class="kg-nav">
+      <a href="{% url 'home' %}"{% if active_page == 'home' %} class="is-active"{% endif %}>Projects</a>
+      <a href="{% url 'rec_playground' %}"{% if active_page == 'recommendations' %} class="is-active"{% endif %}>Recommendations</a>
+      {% if is_org_member %}
+      <a href="{% url 'api_credentials' %}"{% if active_page == 'api_credentials' %} class="is-active"{% endif %}>API credentials</a>
+      {% endif %}
+    </nav>
+    <div class="kg-account">
+      {% if request.organization %}
+        <span class="kg-org">{{ request.organization.name }}</span>
+      {% else %}
+        <span class="kg-org kg-muted">All organizations</span>
+      {% endif %}
+      <span class="kg-user kg-muted">{{ user.email }}</span>
+      <a class="kg-acct-link" href="{% url 'account_password' %}?next={{ request.get_full_path|urlencode }}">Password</a>
+      {% if user.is_staff %}<a class="kg-acct-link" href="{{ admin_url }}">Admin</a>{% endif %}
+      <a class="kg-acct-link" href="/api/v1/docs" target="_blank" rel="noopener">API</a>
+      <form method="post" action="/oidc/logout/">
+        {% csrf_token %}
+        <button type="submit" class="kg-btn kg-btn-sm">Log out</button>
+      </form>
+    </div>
+  </header>
+  <main class="kg-main">
+    {% block app_content %}{% endblock %}
+  </main>
+</div>
+{% endblock %}

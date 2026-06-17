@@ -1,0 +1,110 @@
+---
+- name: Resolve this box's drain identity (origin/Patroni member + peer)
+  ansible.builtin.set_fact:
+    drain_identity: "{{ drain_host_identity[inventory_hostname] }}"
+
+- name: Fail if this host has no drain identity
+  ansible.builtin.assert:
+    that: inventory_hostname in drain_host_identity
+    fail_msg: "No drain_host_identity for {{ inventory_hostname }}."
+
+- name: Install jq (drain.sh parses the CF API)
+  ansible.builtin.apt:
+    name: jq
+    state: present
+    update_cache: true
+
+- name: Ensure the drain dir exists
+  ansible.builtin.file:
+    path: "{{ drain_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install drain.sh
+  ansible.builtin.copy:
+    src: drain.sh
+    dest: "{{ drain_dir }}/drain.sh"
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Render drain.env (CF token + identity) 0600
+  ansible.builtin.template:
+    src: drain.env.j2
+    dest: "{{ drain_dir }}/drain.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Install the keygrip-drain systemd unit (drain on stop / undrain on start)
+  ansible.builtin.template:
+    src: keygrip-drain.service.j2
+    dest: /etc/systemd/system/keygrip-drain.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: drain_unit
+
+- name: Enable + start keygrip-drain (start = undrain, harmless if already enabled)
+  ansible.builtin.systemd:
+    name: keygrip-drain.service
+    enabled: true
+    state: started
+    daemon_reload: "{{ drain_unit.changed }}"
+
+- name: "Install the safe-reboot wrapper (manual; refuses unless the cluster can lose this node)"
+  ansible.builtin.copy:
+    src: safe-reboot
+    dest: /usr/local/bin/safe-reboot
+    owner: root
+    group: root
+    mode: "0755"
+
+# --- Unattended security updates + GUARDED auto-reboot (only when etcd quorum is safe) ---
+- name: Ensure unattended-upgrades is installed
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+  when: drain_auto_updates | bool
+
+- name: Install the guarded auto-reboot service + timer (reboot only when quorum is safe)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - keygrip-safe-reboot.service
+    - keygrip-safe-reboot.timer
+  register: safe_reboot_units
+  when: drain_auto_updates | bool
+
+- name: Enable + start the guarded auto-reboot timer
+  ansible.builtin.systemd:
+    name: keygrip-safe-reboot.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ safe_reboot_units.changed }}"
+  when: drain_auto_updates | bool
+
+- name: Enable periodic apt update + unattended upgrade
+  ansible.builtin.copy:
+    src: 20auto-upgrades
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  when: drain_auto_updates | bool
+
+- name: Configure graceful auto-reboot (staggered per box)
+  ansible.builtin.template:
+    src: 52-keygrip-unattended.j2
+    dest: /etc/apt/apt.conf.d/52-keygrip-unattended
+    owner: root
+    group: root
+    mode: "0644"
+  when: drain_auto_updates | bool

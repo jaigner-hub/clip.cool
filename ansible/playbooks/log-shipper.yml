@@ -1,0 +1,10 @@
+---
+# Ship container logs to Loki from the NON-primary app boxes (vent.dog2). The
+# primary (vent.dog) already ships via roles/observability; this fills the gap so
+# the whole HA pair's logs land in one Loki, labelled host=<node>.
+#   ./ac ansible-playbook playbooks/log-shipper.yml
+- name: log shipper (non-primary app boxes)
+  hosts: dev:!primary
+  become: true
+  roles:
+    - log_shipper

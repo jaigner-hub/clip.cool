@@ -1,0 +1,47 @@
+# vent-web: serves the SPA and reverse-proxies the API/Matrix to vent-server. This is the single
+# origin the chat.vent.dog tunnel targets (replaces the old host-nginx routing). Rendered by Ansible.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 100M;   # Matrix media uploads
+
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+
+    location /assets {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # API + Matrix go to the Go server (same edge network, same compose project).
+    location /api/ {
+        proxy_pass http://vent-server:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /_matrix/ {
+        proxy_pass http://vent-server:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;   # Matrix /sync long-poll (server WriteTimeout is 60s)
+        proxy_buffering off;
+    }
+
+    location = /health {
+        proxy_pass http://vent-server:8080;
+    }
+
+    # SPA fallback
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

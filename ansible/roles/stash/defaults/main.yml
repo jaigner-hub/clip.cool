@@ -1,0 +1,24 @@
+---
+# stash (server binary) — pushes the locally-built static stash binary to the
+# keyed cluster nodes and restarts the server. Fills the gap the stash_agent role
+# assumed away ("the stash binary at /usr/local/bin/stash ... already satisfied").
+#
+# It manages ONLY the binary + a restart. The stash.service unit and the
+# host-bound unseal-key credential are set up out-of-band (see
+# ~/Projects/stash/docs/DEPLOY.md) and are deliberately NOT templated here, so a
+# deploy can never break the unseal path.
+#
+# The binary is staged into roles/stash/files/stash before the run (the ./ac
+# container doesn't mount the sibling stash repo). Use `bin/deploy-stash`.
+stash_bin_dest: /usr/local/bin/stash
+
+# Services that run the binary and so must restart to pick up new code. The agent
+# shares the same binary; its restart is tolerated-missing for server-only hosts.
+stash_service: stash.service
+stash_agent_service: stash-agent.service
+
+# RFC 3161 timestamp authority for audit-log anchoring (trusted timestamps the
+# chain head is anchored to, so a key holder can't silently backdate the log).
+# DigiCert's free public TSA; its root is in the system trust store, so
+# `stash audit verify` needs no extra cert. Empty string disables anchoring.
+stash_audit_tsa: http://timestamp.digicert.com

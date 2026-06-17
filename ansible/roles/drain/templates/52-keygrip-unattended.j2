@@ -1,0 +1,6 @@
+// Managed by Ansible (roles/drain). Install security updates automatically, but DON'T let
+// unattended-upgrades reboot blindly — a blind reboot can't check etcd quorum, and the day the
+// witness was down that would have caused an outage. The reboot is instead handled by the GUARDED
+// keygrip-safe-reboot.timer (drain.sh reboot-if-safe), which only reboots when all 3 etcd members
+// are healthy and the peer is up. Windows are staggered per box. ADR 0016.
+Unattended-Upgrade::Automatic-Reboot "false";

@@ -1,0 +1,10 @@
+---
+# Pin systemd-timesyncd NTP sources on the dev pair so host clocks stay tight.
+# OIDC/JWT iat/exp validation is skew-sensitive (see app PR #85); this keeps the
+# boxes disciplined as config-as-code rather than relying on the image default.
+#   ./ac ansible-playbook playbooks/timesync.yml
+- name: Time sync (NTP)
+  hosts: dev
+  become: true
+  roles:
+    - timesync

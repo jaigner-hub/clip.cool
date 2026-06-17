@@ -1,0 +1,44 @@
+---
+# stash_agent — runs `stash agent` on each app box, rendering the keygrip web
+# secrets from the stash cluster (~/Projects/stash) into a tmpfs .env and
+# recreating the app stack when a value changes. This is the ADR-0018 build-your-
+# own path; it runs IN PARALLEL with SOPS until the parity diff is clean (see
+# README at the bottom of tasks/main.yml).
+
+# Hit the LOCAL stash node — each app box (dev group) also runs `stash server`,
+# bound to its tailnet IP (ansible_host), which is in the leaf cert SAN. The local
+# node proxies writes to the leader, so reads work regardless of who's leader and
+# there's no cross-box dependency. (It binds the tailnet IP, NOT 127.0.0.1.)
+stash_api: "https://{{ ansible_host }}:8200"
+stash_ca: /var/lib/stash/ca.crt
+stash_agent_bin: /usr/local/bin/stash
+
+# Option A (Jeff's choice): nothing plaintext on disk. Out AND last-good cache
+# both live on tmpfs (/run), so a reboot relies on the 3-node HA cluster being
+# reachable rather than a persisted cache. RuntimeDirectory => /run/clip 0700.
+stash_run_subdir: clip
+stash_env_out: "/run/{{ stash_run_subdir }}/web.env"
+stash_env_cache: "/run/{{ stash_run_subdir }}/web.env.last"
+stash_interval: 30s
+
+stash_etc_dir: /etc/stash
+stash_token_cred: "{{ stash_etc_dir }}/web-token.cred"
+
+# Must match roles/clip_web/defaults/main.yml
+app_dir: /opt/keygrip/webapp   # platform install root stays /opt/keygrip (shared with the chat stack)
+
+# AUTO MODE: the agent renders EVERY secret it may read under stash_prefix as
+# KEY=value (DB_PASSWORD, etc.) — no template. Add a key under clip/web/ in stash and
+# it appears on the next poll, no redeploy. stash_overlay is a per-host prefix
+# whose direct keys override the base (set in inventory for hosts that need a
+# different value — e.g. vent.dog2's tailnet SENTRY_DSN at clip/web/vent.dog2/...).
+stash_prefix: "clip/web"
+stash_overlay: ""
+
+# PARALLEL-RUN DEFAULT: empty — the agent only renders {{ stash_env_out }} and
+# does NOT touch the running app, so it runs safely alongside SOPS. The reload
+# command IS the cutover: setting it makes a secret change recreate the app from
+# the stash-rendered env. Flip together with keygrip_web's --env-file (see the
+# README block at the bottom of tasks/main.yml). To cut over, set in group_vars:
+#   stash_on_change: "docker compose -f /opt/keygrip/webapp/compose.yml --env-file /run/clip/web.env up -d"
+stash_on_change: ""

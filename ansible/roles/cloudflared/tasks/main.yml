@@ -1,0 +1,36 @@
+---
+- name: Ensure cloudflared dir exists
+  ansible.builtin.file:
+    path: "{{ cloudflared_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure the shared edge network exists
+  ansible.builtin.command: docker network create keygrip-edge
+  register: _edge_net
+  changed_when: _edge_net.rc == 0
+  failed_when: _edge_net.rc != 0 and 'already exists' not in _edge_net.stderr
+
+- name: Render cloudflared compose
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ cloudflared_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render cloudflared .env (token)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ cloudflared_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Bring up the cloudflared connector
+  community.docker.docker_compose_v2:
+    project_src: "{{ cloudflared_dir }}"
+    state: present

@@ -1,0 +1,48 @@
+{# Rendered 0600 by roles/dendrite (contains the DB password + registration secret). #}
+version: 2
+
+global:
+  server_name: {{ dendrite_server_name }}
+  private_key: /etc/dendrite/keys/matrix_key.pem
+  database:
+    connection_string: postgres://{{ dendrite_db_user }}:{{ vault_dendrite_db_password }}@{{ dendrite_db_host }}:{{ dendrite_db_port }}/{{ dendrite_db_name }}?sslmode=disable
+    max_open_conns: 40
+    max_idle_conns: 5
+    conn_max_lifetime: -1
+  cache:
+    max_size_estimated: 512mb
+    max_age: 1h
+  jetstream:
+    storage_path: /var/dendrite/jetstream
+    in_memory: false
+
+client_api:
+  # Keycloak is the only identity source. Public registration is DISABLED so nobody can self-register
+  # through the proxied /_matrix/client/register; the Vent Go server provisions users via the
+  # shared-secret admin endpoint (registration_shared_secret), which is not gated by this flag.
+  registration_disabled: true
+  registration_shared_secret: "{{ vault_dendrite_registration_shared_secret }}"
+  rate_limiting:
+    enabled: true
+    threshold: 20
+    cooloff_ms: 500
+
+media_api:
+  base_path: /var/dendrite/media
+  max_file_size_bytes: 104857600  # 100MB
+
+sync_api:
+  search:
+    enabled: true
+
+federation_api:
+  send_max_retries: 16
+  disable_tls_validation: false
+  disable_http_keepalives: false
+
+user_api:
+  auto_join_rooms: []
+
+logging:
+  - type: std
+    level: info

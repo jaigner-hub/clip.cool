@@ -1,0 +1,71 @@
+{
+  "uid": "stash-audit",
+  "title": "Stash — Audit Log",
+  "tags": ["keygrip", "stash", "audit"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "node",
+        "label": "Node",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "definition": "label_values({job=\"stash-audit\"}, node)",
+        "query": { "label": "node", "stream": "{job=\"stash-audit\"}", "type": 1, "refId": "LokiVariableQueryEditor-VariableQuery" },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "current": { "text": ["All"], "value": ["$__all"] }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Audit events by action",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 0, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "options": { "legend": { "showLegend": true, "placement": "right", "displayMode": "table", "calcs": ["sum"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum by (action) (count_over_time({job=\"stash-audit\", node=~\"$node\"} | json [$__auto]))", "legendFormat": "{{action}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Denials & errors",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 25, "lineWidth": 2, "stacking": { "mode": "normal" } }, "color": { "mode": "palette-classic" } },
+        "overrides": []
+      },
+      "options": { "legend": { "showLegend": true, "placement": "bottom", "displayMode": "list", "calcs": [] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum by (result) (count_over_time({job=\"stash-audit\", node=~\"$node\"} | json | result=~\"denied|error|not_found\" [$__auto]))", "legendFormat": "{{result}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "Audit entries (newest first)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 18, "w": 24, "x": 0, "y": 8 },
+      "options": { "showTime": true, "wrapLogMessage": true, "prettifyLogMessage": true, "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Descending" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "expr": "{job=\"stash-audit\", node=~\"$node\"} | json", "maxLines": 1000 }
+      ]
+    }
+  ]
+}

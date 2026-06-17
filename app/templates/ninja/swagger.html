@@ -1,0 +1,28 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <link type="text/css" rel="stylesheet" href="{% static 'ninja/swagger-ui.css' %}">
+    {% include "ninja/favicons.html" %}
+    <title>{{ api.title }}</title>
+</head>
+<body>
+    {# Custom swagger.html: one-click Keycloak login (initOAuth + PKCE), under the /api/v1/docs relaxed CSP. #}
+    <script type="application/json" id="swagger-settings">{{ swagger_settings | safe }}</script>
+    <div id="swagger-ui"></div>
+    <script src="{% static 'ninja/swagger-ui-bundle.js' %}"></script>
+    <script>
+        const cfg = JSON.parse(document.getElementById("swagger-settings").textContent);
+        cfg.dom_id = "#swagger-ui";
+        cfg.presets = [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset];
+        cfg.oauth2RedirectUrl = window.location.origin + "/api/v1/docs/oauth2-redirect.html";
+        const ui = SwaggerUIBundle(cfg);
+        ui.initOAuth({
+            clientId: "keygrip-api-docs",
+            scopes: ["openid", "email", "profile"],
+            usePkceWithAuthorizationCodeGrant: true,
+        });
+        window.ui = ui;
+    </script>
+</body>
+</html>

@@ -1,0 +1,87 @@
+---
+- name: Add Tailscale apt signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    mode: "0644"
+
+- name: Add Tailscale apt repository
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.tailscale-keyring.list"
+    dest: /etc/apt/sources.list.d/tailscale.list
+    mode: "0644"
+
+- name: Install Tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+
+- name: Ensure tailscaled is enabled and running
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+- name: Get Tailscale backend state
+  ansible.builtin.command: tailscale status --json
+  register: ts_status
+  changed_when: false
+  failed_when: false
+
+- name: Bring Tailscale up (tag:keygrip) if not already connected
+  ansible.builtin.command: >-
+    tailscale up
+    --authkey={{ vault_tailscale_authkey }}
+    --hostname={{ tailscale_hostname }}
+    --accept-dns={{ tailscale_accept_dns | ternary('true', 'false') }}
+    {% if tailscale_tag | length > 0 %}--advertise-tags={{ tailscale_tag }}{% endif %}
+  when: >-
+    ts_status.rc != 0 or
+    (ts_status.stdout | from_json).BackendState | default('NoState') != 'Running'
+  register: ts_up
+  until: ts_up.rc == 0          # tailscaled may not be ready right after start — retry
+  retries: 5
+  delay: 3
+  no_log: true                  # never log the auth key
+  changed_when: ts_up.rc == 0
+
+# A node can be connected but WRONG — joined as a personal/desktop node (untagged → it expires) or
+# under the wrong hostname. A tag can't be self-assigned without a tagged key, so fix it by forcing
+# a re-auth with the tagged vault key. Detect: connected, but the expected tag isn't on Self.Tags
+# (or the DNSName doesn't match the wanted hostname). This is what repairs vent.dog2.
+- name: Re-read Tailscale state (post-up)
+  ansible.builtin.command: tailscale status --json
+  register: ts_status2
+  changed_when: false
+  failed_when: false
+
+- name: Capture Self from Tailscale state
+  ansible.builtin.set_fact:
+    ts_self: "{{ (ts_status2.stdout | from_json).Self | default({}) }}"
+  when: ts_status2.rc == 0
+
+- name: Force re-auth to apply the expected tag + hostname
+  # We reach the box OVER the tailnet, so tailscale refuses --force-reauth (it might drop our SSH)
+  # unless we accept the risk. A re-auth keeps the same node IP, so the connection survives in
+  # practice; if it does blip, the `until` retry + Ansible's SSH reconnect cover it.
+  ansible.builtin.command: >-
+    tailscale up
+    --authkey={{ vault_tailscale_authkey }}
+    --hostname={{ tailscale_hostname }}
+    --accept-dns={{ tailscale_accept_dns | ternary('true', 'false') }}
+    {% if tailscale_tag | length > 0 %}--advertise-tags={{ tailscale_tag }}{% endif %}
+    --force-reauth
+    --accept-risk=lose-ssh
+  when:
+    - tailscale_tag | length > 0
+    - ts_status2.rc == 0
+    - >-
+      tailscale_tag not in (ts_self.Tags | default([]))
+      or not (ts_self.DNSName | default('')).startswith(tailscale_hostname ~ '.')
+  register: ts_reauth
+  until: ts_reauth.rc == 0
+  retries: 5
+  delay: 3
+  no_log: true
+  changed_when: ts_reauth.rc == 0

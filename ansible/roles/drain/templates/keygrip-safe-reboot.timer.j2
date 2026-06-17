@@ -1,0 +1,10 @@
+[Unit]
+Description=keygrip guarded auto-reboot window (staggered per box; ADR 0016)
+
+[Timer]
+OnCalendar=*-*-* {{ drain_reboot_time }}:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

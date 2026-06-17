@@ -1,0 +1,119 @@
+# Rendered by Ansible (roles/clip_web). Secrets via .env (SOPS-sourced); image built from ./src.
+name: clip-web
+
+# Shared env for the web + worker processes (same image, same config). webapp adds its own
+# HTTP-only vars below; the worker (Procrastinate, ADR 0008) needs the rest — DB + Keycloak admin
+# (a task may mint/sync clients) + Resend (a task may send mail).
+x-app-env: &app_env
+  DJANGO_SETTINGS_MODULE: keygrip.settings.prod
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?}
+  KEYCLOAK_ISSUER: "{{ keycloak_issuer }}"
+  # Validate API bearer tokens against Keycloak on the edge network (skip Cloudflare —
+  # PyJWT fetches JWKS with urllib, whose UA Cloudflare bot-protection 403s).
+  API_JWKS_URL: "{{ keycloak_internal_base }}/realms/keygrip/protocol/openid-connect/certs"
+  OIDC_RP_CLIENT_ID: clip-web
+  OIDC_RP_CLIENT_SECRET: ${OIDC_RP_CLIENT_SECRET:?}
+  # App -> Keycloak Admin API (mint/rotate/revoke customer service-account clients).
+  KEYCLOAK_ADMIN_BASE: "{{ keycloak_internal_base }}"   # local edge net on primary; tailnet IP on 2nd node
+  KEYCLOAK_REALM: keygrip
+  KC_ADMIN_CLIENT_ID: clip-kc-admin
+  KC_ADMIN_CLIENT_SECRET: ${KC_ADMIN_CLIENT_SECRET:?}
+  RESEND_API_KEY: ${RESEND_API_KEY:?}
+  DEFAULT_FROM_EMAIL: "noreply@vent.dog"
+  SENTRY_DSN: ${SENTRY_DSN:-}          # error tracking (GlitchTip); empty ⇒ SDK no-op
+  SENTRY_ENVIRONMENT: "vent.dog"
+  # Recommendations API → OpenRouter (Claude; ADR 0013). Optional like SENTRY_DSN — empty ⇒
+  # generation returns a clear error, the rest of the app still serves. In the shared anchor so
+  # the worker has it too once the aeo queue calls OpenRouter (Tier 2).
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  # OpenTelemetry traces → Alloy (edge net) → Tempo (ADR 0015). Empty endpoint ⇒ no-op, like
+  # SENTRY_DSN. service.name is set per-service below (clip-web vs clip-worker).
+  OTEL_EXPORTER_OTLP_ENDPOINT: "{{ app_otel_endpoint }}"
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  OTEL_TRACES_SAMPLER_ARG: "{{ app_otel_sample_rate }}"
+  OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=vent.dog,service.namespace=clip"
+  # Don't trace the health/metrics/scrape noise (comma-sep regexes; keygrip/tracing.py). Keeps the
+  # traces + RED dashboard about real requests, not Prometheus's 15s /metrics scrape.
+  OTEL_PYTHON_ASGI_EXCLUDED_URLS: "healthz,readyz,metrics"
+  # DB_HOST/DB_PORT are set PER SERVICE below — the HA cluster (ADR 0016) has two entry points:
+  # web -> PgBouncer (transaction pool), worker -> HAProxy (session, for Procrastinate LISTEN/NOTIFY).
+  # Both reached on the host via host.docker.internal (extra_hosts: host-gateway).
+  DB_NAME: {{ app_db_name }}
+  DB_USER: {{ app_db_user }}
+  DB_PASSWORD: ${DB_PASSWORD:?}
+
+services:
+  # NOTE: the single-node `appdb` was RETIRED 2026-06-11 — the app runs on the HA Patroni cluster
+  # (ADR 0016). web -> PgBouncer :6432, worker -> HAProxy :5000 (via host.docker.internal).
+
+  webapp:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *app_env
+      OTEL_SERVICE_NAME: clip-web   # trace service.name for the web tier (ADR 0015)
+      # WEB tier -> PgBouncer (transaction pool) on the host (ADR 0016 / infra-gap #8).
+      DB_HOST: host.docker.internal
+      DB_PORT: "6432"
+      # webapp = Prometheus scrape host (edge net); app_tailnet_host = Tailscale Serve (break-glass).
+      DJANGO_ALLOWED_HOSTS: "{{ app_hostname }},webapp,{{ app_tailnet_host }}"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "https://{{ app_hostname }},https://{{ app_tailnet_host }}:{{ app_tailnet_https_port }}"
+      # ADR 0002: /admin is public (same-origin; staff use their Keycloak SSO session), but the
+      # *password* login form only exists on the tailnet Serve host — the app's admin_login_gate
+      # routes every other host through OIDC, so the break-glass credential is dead publicly.
+      DJANGO_BREAK_GLASS_LOGIN_HOSTS: "{{ app_tailnet_host }}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach the host-networked PgBouncer/HAProxy
+    # Host loopback ONLY (never 0.0.0.0) — lets Tailscale Serve reach the app for the tailnet
+    # break-glass /admin path. Public traffic still arrives via cloudflared (webapp:8000), not this port.
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks: [appnet, edge]   # edge -> reachable by cloudflared as webapp:8000
+
+  # Procrastinate worker (ADR 0008): one process, all four logical queues. Same image as webapp,
+  # different entrypoint. The DjangoConnector reuses DATABASES["default"] for both the job queue and
+  # LISTEN/NOTIFY, so it MUST be a session connection — it goes to HAProxy (the leader), NOT through
+  # the transaction-mode PgBouncer (the ADR 0008 / ADR 0016 watch-out).
+  worker:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "manage.py", "procrastinate", "worker", "--queues", "default,batch,workflow,aeo"]
+    environment:
+      <<: *app_env
+      OTEL_SERVICE_NAME: clip-worker   # trace service.name for the queue tier (ADR 0015)
+      # WORKER -> HAProxy (session, current leader). NEVER PgBouncer: txn pooling breaks LISTEN/NOTIFY.
+      DB_HOST: host.docker.internal
+      DB_PORT: "5000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach the host-networked HAProxy
+    # N replica processes; they coordinate through Postgres row-locking (ADR 0008 HA model), so
+    # a job runs exactly once across all of them. No container_name → compose names them -1, -2…
+    deploy:
+      replicas: {{ worker_replicas }}
+    networks: [appnet, edge]   # edge -> reach keycloak:8080 for admin-API tasks
+
+  pg-exporter-app:
+    image: {{ postgres_exporter_image }}
+    restart: unless-stopped
+    # Publish on THIS box's tailnet IP so the (vent.dog-only) Prometheus scrapes BOTH nodes' app-DB
+    # exporters per-box (like the keycloak job). tailscale0 is already ufw-open cross-box; nothing is
+    # exposed beyond the tailnet, and the endpoint is metrics-only.
+    ports:
+      - "{{ ansible_host }}:9187:9187"
+    environment:
+      # Monitor the HA cluster's CURRENT LEADER via HAProxy (ADR 0016) — follows failover, and the
+      # leader's pg_stat_replication exposes replica lag. clip has pg_monitor (init-app-db.sql).
+      DATA_SOURCE_NAME: "postgresql://{{ app_db_user }}:${DB_PASSWORD:?}@host.docker.internal:5000/{{ app_db_name }}?sslmode=disable"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach the host-networked HAProxy
+    networks: [appnet, edge]   # edge -> Prometheus scrapes :9187
+
+networks:
+  appnet:
+  edge:
+    name: keygrip-edge
+    external: true

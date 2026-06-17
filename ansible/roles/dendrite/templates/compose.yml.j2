@@ -1,0 +1,29 @@
+name: keygrip-dendrite
+
+services:
+  dendrite:
+    image: {{ dendrite_image }}
+    restart: unless-stopped
+    entrypoint: ["/usr/bin/dendrite"]
+    command: ["-config", "/etc/dendrite/dendrite.yaml"]
+    environment:
+      TZ: UTC
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach HAProxy (Postgres) on the host
+    volumes:
+      - {{ dendrite_dir }}/dendrite.yaml:/etc/dendrite/dendrite.yaml:ro
+      - {{ dendrite_dir }}/keys:/etc/dendrite/keys
+      - dendrite_media:/var/dendrite/media
+      - dendrite_jetstream:/var/dendrite/jetstream
+    ports:
+      - "127.0.0.1:8008:8008"   # loopback for debugging; vent-server reaches it on the edge net
+    networks: [edge]
+
+networks:
+  edge:
+    name: keygrip-edge
+    external: true
+
+volumes:
+  dendrite_media:
+  dendrite_jetstream:

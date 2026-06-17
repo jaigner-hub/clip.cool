@@ -1,0 +1,162 @@
+# Rendered by Ansible (roles/observability). Secrets via .env (SOPS-sourced).
+name: keygrip-observability
+
+services:
+  prometheus:
+    image: {{ prometheus_image }}
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time={{ prometheus_retention }}'
+      # Accept Tempo's metrics-generator remote_write (span-metrics + service-graph → RED dashboard,
+      # ADR 0015). Receiver only; Prometheus still scrapes everything else as usual.
+      - '--web.enable-remote-write-receiver'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./rules.yml:/etc/prometheus/rules.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "{{ prometheus_bind }}:9090"
+    networks: [obs, edge]   # edge -> scrape webapp:8000/metrics
+
+  alertmanager:
+    image: {{ alertmanager_image }}
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - amdata:/alertmanager
+    ports:
+      - "{{ alertmanager_bind }}:9093"
+    networks: [obs]   # Prometheus -> alertmanager:9093; outbound SMTP to Resend via the bridge
+
+  node-exporter:
+    image: {{ node_exporter_image }}
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+    pid: host
+    volumes:
+      - '/:/host:ro,rslave'
+    networks: [obs]
+
+  grafana:
+    image: {{ grafana_image }}
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL: "{{ grafana_root_url }}"
+      GF_SERVER_DOMAIN: "{{ grafana_domain }}"
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # --- Keycloak OIDC (login gated through id.vent.dog) ---
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "Keycloak"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "{{ grafana_oidc_client_id }}"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:?}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "openid email profile"
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "{{ grafana_oidc_issuer }}/protocol/openid-connect/auth"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "{{ grafana_oidc_issuer }}/protocol/openid-connect/token"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "{{ grafana_oidc_issuer }}/protocol/openid-connect/userinfo"
+      GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH: "email"
+      GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH: "name"
+      # realm roles -> Grafana org roles
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(roles[*], 'admin') && 'Admin' || contains(roles[*], 'developer') && 'Editor' || 'Viewer'"
+      GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN: "true"
+    volumes:
+      - ./grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./grafana-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/keygrip.yml:ro
+      - ./dashboards:/etc/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on: [prometheus]
+    ports:
+      - "{{ grafana_bind }}:3000"
+    networks: [obs]
+
+  # Log aggregation (open-gaps #5): Loki stores logs; Alloy tails every Docker container.
+  loki:
+    image: {{ loki_image }}
+    restart: unless-stopped
+    command: ['-config.file=/etc/loki/config.yml']
+    volumes:
+      - ./loki-config.yml:/etc/loki/config.yml:ro
+      - ./loki-rules:/etc/loki/rules/fake:ro   # ruler rules (tenant "fake"); break-glass alert
+      - lokidata:/loki
+    ports:
+      - "{{ loki_bind }}:3100"
+{% if loki_tailnet_expose %}
+      - "{{ ansible_host }}:3100:3100"   # tailnet IP — cross-node log/audit push (tailscale0 trusted)
+{% endif %}
+    networks: [obs]   # ruler -> alertmanager:9093 on this network
+
+  blackbox:
+    image: {{ blackbox_image }}
+    restart: unless-stopped
+    command: ['--config.file=/etc/blackbox/blackbox.yml']
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks: [obs]   # outbound to Cloudflare for the probes
+
+  alloy:
+    image: {{ alloy_image }}
+    restart: unless-stopped
+    command: ['run', '--server.http.listen-addr=0.0.0.0:12345', '--storage.path=/var/lib/alloy/data', '/etc/alloy/config.alloy']
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # discover + stream container logs
+      - alloydata:/var/lib/alloy/data
+    depends_on: [loki, tempo]
+    # edge: vent.dog's app pushes OTLP to alloy:4317 over the edge net. Also publish 4317 on the
+    # TAILNET IP so the 2nd app node (vent.dog2) can push traces over the tailnet (ufw allows it;
+    # non-public). ADR 0016 — telemetry from both boxes lands here.
+    ports:
+      - "{{ ansible_host }}:4317:4317"
+    networks: [obs, edge]
+
+  # Trace store — Alloy forwards OTLP here; Grafana queries it (infra-gap-analysis.md #7, ADR 0015).
+  tempo:
+    image: {{ tempo_image }}
+    restart: unless-stopped
+    command: ['-config.file=/etc/tempo/tempo.yml']
+    volumes:
+      - ./tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempodata:/var/tempo
+    networks: [obs]   # Alloy (obs) pushes :4317; Grafana (obs) queries :3200. No host bind.
+
+  # Push alerts to the phone (tailnet-only via Tailscale Serve :8446). Alertmanager publishes to
+  # http://ntfy/<topic>?template=alertmanager on the obs net; the phone subscribes over Tailscale.
+  # All config via NTFY_* env (no server.yml). Self-contained — replaces the personal ntfy box.
+  ntfy:
+    image: {{ ntfy_image }}
+    restart: unless-stopped
+    command: ['serve']
+    environment:
+      NTFY_BASE_URL: "{{ ntfy_base_url }}"
+      NTFY_LISTEN_HTTP: ":80"
+      NTFY_BEHIND_PROXY: "true"                       # trust Tailscale Serve's X-Forwarded-* (real client IP)
+      NTFY_UPSTREAM_BASE_URL: "{{ ntfy_upstream_base_url }}"   # iOS background push via ntfy.sh APNs (hashed wakeup only)
+      NTFY_CACHE_FILE: "/var/lib/ntfy/cache.db"       # persist messages so a just-woken phone can fetch them
+      NTFY_CACHE_DURATION: "12h"
+      NTFY_ATTACHMENT_CACHE_DIR: ""                   # no attachments
+    volumes:
+      - ntfydata:/var/lib/ntfy
+    ports:
+      - "{{ ntfy_bind }}:80"
+    networks: [obs]   # internal publish from Alertmanager; outbound to ntfy.sh for iOS poll-forwarding
+
+volumes:
+  promdata:
+  grafanadata:
+  amdata:
+  lokidata:
+  alloydata:
+  tempodata:
+  ntfydata:
+
+networks:
+  obs:
+  edge:
+    name: keygrip-edge
+    external: true

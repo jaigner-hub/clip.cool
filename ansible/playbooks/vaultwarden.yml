@@ -1,0 +1,13 @@
+---
+# Vaultwarden — team / break-glass password vault, tailnet-only via Tailscale Serve :8444.
+# Uses its OWN master-password auth (NOT Keycloak SSO) so it works when Keycloak is down
+# (ADR 0002/0003). Secret: vault_vaultwarden_admin_token (SOPS).
+#   ./ac ansible-playbook playbooks/vaultwarden.yml
+# Then re-run serve.yml to expose it on the tailnet.
+# NOTE: per ADR 0003 the *production* vault belongs on infra independent of keygrip;
+# this dev instance lives on vent.dog alongside the stack.
+- name: Vaultwarden
+  hosts: primary
+  become: true
+  roles:
+    - vaultwarden

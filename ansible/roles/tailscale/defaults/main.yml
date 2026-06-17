@@ -1,0 +1,8 @@
+---
+tailscale_hostname: vent-keygrip
+# Don't let MagicDNS override the server's resolv.conf by default (revisit if wanted).
+tailscale_accept_dns: false
+# Expected ACL tag (carried by the tagged auth key). Tagged devices DON'T expire — a node joined
+# without it (e.g. as a personal "desktop") is both untagged and will eventually drop off. The role
+# re-authenticates a connected-but-untagged/mis-hostnamed node to fix it. Set "" to skip the check.
+tailscale_tag: "tag:keygrip"

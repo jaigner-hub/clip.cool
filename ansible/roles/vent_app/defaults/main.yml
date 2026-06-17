@@ -1,0 +1,22 @@
+---
+# Vent app tier: the Go API (vent-server) + the SPA/edge nginx (vent-web), pulled from GHCR.
+# vent-web is the SINGLE origin the chat.vent.dog tunnel points at — it serves the SPA and
+# reverse-proxies /api, /_matrix, /health to vent-server over the edge network.
+vent_dir: /opt/keygrip/vent
+vent_server_image: "ghcr.io/jaigner-hub/vent-server:phase1"
+vent_client_image: "ghcr.io/jaigner-hub/vent-client:phase1"
+vent_hostname: "chat.vent.dog"
+
+# Keycloak OIDC (the vent-web client already lives in the keygrip realm).
+keycloak_issuer: "https://id.vent.dog/realms/keygrip"
+keycloak_client_id: "vent-web"
+
+# Vent app DB in the shared HA cluster (created by postgres_ha), via HAProxy write port on the host.
+vent_db_user: "vent"
+vent_db_name: "vent"
+vent_db_host: "host.docker.internal"
+vent_db_port: "5000"
+
+# Matrix homeserver name (suffix on user IDs) + LiveKit signaling URL (via the tunnel).
+vent_matrix_server_name: "vent.dog"
+livekit_signal_url: "wss://livekit.vent.dog"

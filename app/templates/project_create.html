@@ -1,0 +1,20 @@
+{% extends "app_base.html" %}
+{% block title %}{% if first_run %}Name your first project{% else %}New project{% endif %} · keygrip{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">{% if first_run %}Name your first project{% else %}New project{% endif %}</h1>
+  <p class="kg-sub">{{ request.organization.name }} · a project is a workspace for your content</p>
+</div>
+
+{% if error %}<div class="kg-alert">{{ error }}</div>{% endif %}
+
+<form method="post" action="{% url 'project_create' %}" class="kg-row kg-creds-form">
+  {% csrf_token %}
+  <input type="text" name="name" placeholder="Project name (e.g. Marketing site)" class="kg-input" maxlength="200" autofocus required>
+  <button type="submit" class="kg-btn">Create project</button>
+</form>
+
+{% if not first_run %}
+<p class="kg-muted"><a href="{% url 'home' %}">← Back to projects</a></p>
+{% endif %}
+{% endblock %}

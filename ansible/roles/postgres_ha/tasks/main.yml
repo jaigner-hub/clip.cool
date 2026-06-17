@@ -1,0 +1,173 @@
+---
+# Self-hosted HA Postgres (ADR 0016). Brings up the per-node stack: etcd + Patroni/Postgres +
+# HAProxy + PgBouncer. Patroni coordinates the bootstrap via etcd — whichever node grabs the DCS
+# leader key first runs initdb; the other clones it as a replica. The two data-node etcd members
+# form a 2/3 majority on their own, so first bootstrap does NOT require the witness to be up.
+#
+# LIVE (ADR 0016): bootstrapped + failover-verified on the vent.dog pair 2026-06-11. See the README.
+
+- name: Resolve this host's Patroni/etcd identity
+  ansible.builtin.set_fact:
+    patroni_name: "{{ pg_ha_host_identity[inventory_hostname].name }}"
+    node_address: "{{ pg_ha_host_identity[inventory_hostname].address }}"
+
+- name: Fail early if this host has no identity mapping
+  ansible.builtin.assert:
+    that: inventory_hostname in pg_ha_host_identity
+    fail_msg: "No pg_ha_host_identity entry for {{ inventory_hostname }} — add its tailnet name."
+
+- name: Ensure the stack dir exists
+  ansible.builtin.file:
+    path: "{{ pg_ha_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Stage the Patroni image build context (Dockerfile + entrypoint)
+  ansible.builtin.template:
+    src: Dockerfile.patroni.j2
+    dest: "{{ pg_ha_dir }}/Dockerfile.patroni"
+    mode: "0644"
+
+- name: Stage the Patroni entrypoint
+  ansible.builtin.copy:
+    src: patroni-entrypoint.sh
+    dest: "{{ pg_ha_dir }}/patroni-entrypoint.sh"
+    mode: "0755"
+
+- name: Render non-secret configs (patroni / compose)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ pg_ha_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - patroni.yml
+    - compose.yml
+
+- name: Render haproxy.cfg (restart haproxy on change — it's a read-only mount)
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: "{{ pg_ha_dir }}/haproxy.cfg"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart haproxy
+
+- name: Render pgbouncer.ini (restart pgbouncer on change)
+  ansible.builtin.template:
+    src: pgbouncer.ini.j2
+    dest: "{{ pg_ha_dir }}/pgbouncer.ini"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart pgbouncer
+
+- name: Render .env (secrets) — root:root 0600
+  ansible.builtin.template:
+    src: env.j2                                # compose env_file expects .env (dotfile)
+    dest: "{{ pg_ha_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Render pgbouncer userlist — owned by the pgbouncer container uid so 0600 stays readable
+  ansible.builtin.template:
+    src: userlist.txt.j2
+    dest: "{{ pg_ha_dir }}/userlist.txt"
+    owner: "{{ pgbouncer_uid }}"
+    group: "{{ pgbouncer_uid }}"
+    mode: "0600"
+  no_log: true
+  notify: restart pgbouncer
+
+- name: Build + bring up the HA Postgres stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ pg_ha_dir }}"
+    build: always
+    state: present
+
+# The app containers (webapp/worker, on docker bridges) reach the host proxies via host-gateway.
+# ufw default-denies incoming, so allow the docker private range to the proxy ports. The PUBLIC
+# interface stays blocked (this src range is non-routable from the internet).
+- name: Allow docker containers to reach the DB proxies (pgbouncer + haproxy)
+  community.general.ufw:
+    rule: allow
+    src: "172.16.0.0/12"
+    port: "{{ item }}"
+    proto: tcp
+    comment: "keygrip app -> DB proxy (ADR 0016)"
+  loop:
+    - "{{ pgbouncer_listen_port }}"
+    - "{{ pg_ha_haproxy_write_port }}"
+    - "{{ pg_ha_haproxy_read_port }}"
+
+# --- App database + role (created once, on the leader, via HAProxy's write port) ---
+# HAProxy routes 127.0.0.1:{{ write }} to the current leader; the app role/db creation is idempotent.
+# run_once so it happens from a single host regardless of which node won the leader election.
+- name: Wait for the leader to accept writes (HAProxy /primary backend up)
+  ansible.builtin.command: >-
+    docker compose -f {{ pg_ha_dir }}/compose.yml exec -T patroni
+    pg_isready -h 127.0.0.1 -p {{ pg_ha_haproxy_write_port }}
+  register: _pg_ready
+  retries: 30
+  delay: 5
+  until: _pg_ready.rc == 0
+  changed_when: false
+  run_once: true
+
+- name: Render the idempotent app-db init SQL (0600)
+  ansible.builtin.template:
+    src: init-app-db.sql.j2
+    dest: "{{ pg_ha_dir }}/init-app-db.sql"
+    owner: root
+    group: root
+    mode: "0600"
+  run_once: true
+  no_log: true
+
+- name: Create the app role + database (idempotent; on the leader via HAProxy)
+  ansible.builtin.shell:
+    cmd: >-
+      docker compose -f {{ pg_ha_dir }}/compose.yml exec -T
+      -e PGPASSWORD={{ vault_pg_superuser_password }} patroni
+      psql -h 127.0.0.1 -p {{ pg_ha_haproxy_write_port }} -U postgres -v ON_ERROR_STOP=1 -f -
+      < {{ pg_ha_dir }}/init-app-db.sql
+  run_once: true
+  no_log: true
+  changed_when: true
+
+# --- Nightly pg_dump -> Backblaze B2 (ADR 0016). Runs on ONE node only; rclone config via env. ---
+- name: Install rclone (backup host only)
+  ansible.builtin.apt:
+    name: rclone
+    state: present
+    update_cache: true
+  when:
+    - pg_ha_backup_enabled | bool
+    - inventory_hostname == pg_ha_backup_host
+
+- name: Install the backup script (backup host only)
+  ansible.builtin.template:
+    src: backup.sh.j2
+    dest: "{{ pg_ha_dir }}/backup.sh"
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - pg_ha_backup_enabled | bool
+    - inventory_hostname == pg_ha_backup_host
+  no_log: true
+
+- name: Schedule the nightly backup (backup host only)
+  ansible.builtin.cron:
+    name: "keygrip-pgha pg_dump -> B2"
+    hour: "{{ pg_ha_backup_hour }}"
+    minute: "0"
+    job: "{{ pg_ha_dir }}/backup.sh >> /var/log/keygrip-pgha-backup.log 2>&1"
+  when:
+    - pg_ha_backup_enabled | bool
+    - inventory_hostname == pg_ha_backup_host

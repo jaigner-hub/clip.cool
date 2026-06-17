@@ -1,0 +1,6 @@
+---
+# settings_proxy.py is a bind-mounted file — `docker compose up` won't recreate the container when
+# only its content changes, so restart the Django services to reload it.
+- name: Restart GlitchTip app
+  ansible.builtin.command: docker compose -f {{ glitchtip_dir }}/compose.yml restart gt-web gt-worker
+  changed_when: true

@@ -1,0 +1,24 @@
+---
+- name: Get current Tailscale Serve config
+  ansible.builtin.command: tailscale serve status
+  register: ts_serve
+  changed_when: false
+  failed_when: false
+
+# Most backends are plaintext loopback (http://127.0.0.1:LOCAL). Pass `target`
+# instead for a backend that speaks its own TLS — e.g. stash uses https+insecure://
+# (Serve presents the trusted ts.net cert to the browser; the backend keeps its
+# own private-CA TLS, which Serve does not re-verify). A ternary (not the default
+# filter) is used so item.local is never referenced for target-style entries.
+- name: Serve a local backend over HTTPS on the tailnet
+  ansible.builtin.command: >-
+    tailscale serve --bg --https={{ item.https }}
+    {{ item.target if item.target is defined else ('http://127.0.0.1:' ~ (item.local | string)) }}
+  loop: "{{ tailscale_serve_map }}"
+  loop_control:
+    label: ":{{ item.https }} -> {{ item.target if item.target is defined else ('http://127.0.0.1:' ~ (item.local | string)) }}"
+  when: (item.target if item.target is defined else ('http://127.0.0.1:' ~ (item.local | string))) not in (ts_serve.stdout | default(""))
+  register: ts_serve_set
+  changed_when: ts_serve_set.rc == 0
+  # If this fails with "HTTPS is not enabled", turn on HTTPS Certificates in the
+  # tailnet admin console (DNS settings) and re-run.

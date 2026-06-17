@@ -1,0 +1,64 @@
+# Rendered by Ansible (roles/observability). Single-binary Loki, filesystem storage, capped
+# retention (open-gaps #5). Only Ansible var is the retention period.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9095
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: {{ loki_retention }}
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  ingestion_rate_mb: 8
+  ingestion_burst_size_mb: 16
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+# Loki ruler — evaluates LogQL alert rules and pushes alerts to Alertmanager (→ email + ntfy via
+# the `all` receiver). Used for log-derived alerts the per-worker Prometheus client can't do
+# reliably (e.g. a rare break-glass login, ADR 0002). Rules live in /etc/loki/rules/<tenant>/;
+# auth is disabled so the tenant is "fake". rule_path is just the ruler's scratch/WAL dir.
+ruler:
+  alertmanager_url: http://alertmanager:9093
+  enable_alertmanager_v2: true
+  enable_api: true
+  rule_path: /loki/ruler-wal
+  storage:
+    type: local
+    local:
+      directory: /etc/loki/rules
+  ring:
+    kvstore:
+      store: inmemory
+  evaluation_interval: 15s
+  poll_interval: 1m
+
+analytics:
+  reporting_enabled: false

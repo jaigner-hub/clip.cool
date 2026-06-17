@@ -1,0 +1,19 @@
+---
+# Push the locally-built stash server binary to the keyed cluster nodes and
+# restart the server (+ the agent, which shares the binary). This fills the gap
+# the stash_agent role assumed away — the server binary used to be hand-scp'd.
+#
+# Build it first, then deploy:
+#   cd ~/Projects/stash && make release
+#   ./ac ansible-playbook playbooks/stash.yml
+#
+# Rolling: serial=1 so nodes upgrade one at a time and quorum is never lost.
+#
+# NOTE: the NixOS witness (monitor) is NOT in this inventory — roll it out via
+# ~/Projects/nixos-config (see ~/Projects/stash/docs/DEPLOY.md).
+- name: stash server binary
+  hosts: dev
+  become: true
+  serial: 1
+  roles:
+    - stash

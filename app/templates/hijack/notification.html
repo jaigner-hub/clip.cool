@@ -1,0 +1,11 @@
+{# Branded, CSP-safe override of django-hijack's banner (no inline onclick handler). #}
+<div class="kg-impersonating">
+  <span class="kg-impersonating-msg">
+    ⚠️ Impersonating <strong>{{ request.user.get_username }}</strong> — actions are audited.
+  </span>
+  <form action="{% url 'hijack:release' %}" method="POST">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.path }}">
+    <button type="submit" class="kg-btn kg-btn-sm">Stop impersonating</button>
+  </form>
+</div>

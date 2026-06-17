@@ -1,0 +1,12 @@
+---
+# NTP sources for systemd-timesyncd. These are Ubuntu's own sane defaults, pinned
+# explicitly so time sync is config-as-code instead of relying on whatever ships in
+# the image. Tight clocks matter: OIDC/JWT `iat`/`exp` validation is skew-sensitive
+# (see app PR #85 — clock-skew leeway is the belt; this is the suspenders).
+timesync_ntp_servers:
+  - 0.ubuntu.pool.ntp.org
+  - 1.ubuntu.pool.ntp.org
+  - 2.ubuntu.pool.ntp.org
+  - 3.ubuntu.pool.ntp.org
+timesync_fallback_ntp_servers:
+  - ntp.ubuntu.com

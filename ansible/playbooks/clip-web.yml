@@ -1,0 +1,11 @@
+---
+# Deploy the Django app (webapp + Postgres) to vent.dog via Docker Compose.
+# Prereqs: Docker (bootstrap); keycloak stack up (cloudflared on keygrip-edge);
+# SOPS vars vault_app_secret_key, vault_app_db_password, vault_keygrip_web_client_secret.
+#   ./ac ansible-playbook playbooks/clip-web.yml
+- name: Clip web app (Django)
+  hosts: dev
+  become: true
+  roles:
+    - stash_agent   # renders secrets to /run/clip/web.env (tmpfs) before the app needs them
+    - clip_web

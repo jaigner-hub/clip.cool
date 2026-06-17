@@ -1,0 +1,65 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block title %}Recommendations · keygrip{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{% static 'recommendations/playground.css' %}">
+  <script src="{% static 'recommendations/playground.js' %}" defer></script>
+{% endblock %}
+
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">Recommendations</h1>
+  <p class="kg-sub">Tier 1 · paste a URL, get prioritized content/SEO recommendations.</p>
+</div>
+
+{% comment %}
+The whole surface is one #rec-app root carrying the endpoint URLs + CSRF token as data-*
+attributes; playground.js reads them and wires everything via addEventListener (strict CSP — no
+inline handlers, no hx-on). EventSource (GET) hits the session-authed stream endpoint.
+{% endcomment %}
+<div id="rec-app"
+     data-stream-url="{% url 'rec_playground_stream' %}"
+     data-prompt-url="{% url 'rec_playground_save_prompt' %}"
+     data-interaction-base="/recommendations/playground/interaction/"
+     data-is-superuser="{{ request.user.is_superuser|yesno:'1,0' }}"
+     {% if champion %}data-champion-version="{{ champion.id }}"{% endif %}>
+  {% csrf_token %}
+
+  <section class="kg-card">
+    <label class="kg-field-label" for="rec-url">Page URL</label>
+    <div class="kg-row">
+      <input id="rec-url" class="kg-input" type="url" inputmode="url"
+             placeholder="https://example.com/some-page" autocomplete="off">
+      <button id="rec-analyze" class="kg-btn" type="button">Analyze</button>
+    </div>
+    <p id="rec-status" class="kg-out kg-muted">— idle —</p>
+  </section>
+
+  {% if request.user.is_superuser %}
+  <section class="kg-panel" id="rec-prompt-panel">
+    <h2 class="kg-h2">Prompt <span class="kg-muted">· champion {% if champion %}v{{ champion.version }}{% else %}(none){% endif %} · superuser</span></h2>
+    <p class="kg-muted">Tweak the instruction prompt, save it as a new version, and re-run. Versioned in the DB (ADR 0013) — no deploy needed.</p>
+    <textarea id="rec-prompt" class="kg-input kg-textarea" rows="10" spellcheck="false">{% if champion %}{{ champion.system_prompt }}{% endif %}</textarea>
+    <div class="kg-row">
+      <label class="kg-field-label" for="rec-model">Model</label>
+      <select id="rec-model" class="kg-input kg-input-sm">
+        {% for m in models %}
+        <option value="{{ m }}"{% if champion and champion.model == m %} selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+      <label class="kg-field-label" for="rec-temp">Temp</label>
+      <input id="rec-temp" class="kg-input kg-input-sm" type="number" min="0" max="1" step="0.1"
+             value="{% if champion %}{{ champion.temperature }}{% else %}0.4{% endif %}">
+    </div>
+    <div class="kg-row">
+      <label class="kg-check"><input id="rec-make-champion" type="checkbox"> Make champion</label>
+      <button id="rec-save-prompt" class="kg-btn kg-btn-ghost" type="button">Save as new version</button>
+      <span id="rec-prompt-status" class="kg-muted"></span>
+    </div>
+  </section>
+  {% endif %}
+
+  <section id="rec-results" class="kg-results" aria-live="polite"></section>
+</div>
+{% endblock %}

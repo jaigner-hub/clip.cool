@@ -1,0 +1,8 @@
+---
+# Create non-root admin users (sudo, SSH key seeded from root, passwordless sudo).
+#   ./ac ansible-playbook playbooks/users.yml
+- name: Admin users
+  hosts: dev
+  become: true
+  roles:
+    - user

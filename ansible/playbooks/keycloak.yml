@@ -1,0 +1,9 @@
+---
+# Keycloak + Postgres dev stack (Docker Compose) on vent.dog.
+# Prereqs: playbooks/bootstrap.yml (Docker) + SOPS vars vault_kc_db_password / vault_kc_admin_password.
+#   ./ac ansible-playbook playbooks/keycloak.yml
+- name: Keycloak + Postgres (dev)
+  hosts: dev
+  become: true
+  roles:
+    - keycloak

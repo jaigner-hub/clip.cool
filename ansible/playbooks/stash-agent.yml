@@ -1,0 +1,12 @@
+---
+# Install the stash agent on the app boxes (ADR-0018 build-your-own path).
+# Runs ALONGSIDE SOPS — it renders /run/keygrip/web.env but does not change how
+# keygrip_web sources secrets until the parity diff is clean and you do the flip.
+# Prereqs: stash cluster up, scoped keygrip-web token seeded as vault_stash_web_token,
+# and kg/web/* populated in stash.
+#   ./ac ansible-playbook playbooks/stash-agent.yml
+- name: stash agent (keygrip web secrets)
+  hosts: dev
+  become: true
+  roles:
+    - stash_agent

@@ -1,0 +1,31 @@
+---
+- name: Ensure {{ log_shipper_dir }} exists
+  ansible.builtin.file:
+    path: "{{ log_shipper_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render Alloy config
+  ansible.builtin.template:
+    src: config.alloy.j2
+    dest: "{{ log_shipper_dir }}/config.alloy"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart log-shipper
+
+- name: Render compose.yml
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ log_shipper_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Bring up the log shipper
+  community.docker.docker_compose_v2:
+    project_src: "{{ log_shipper_dir }}"
+    state: present
+    pull: missing

@@ -1,0 +1,65 @@
+# Grafana Tempo — trace store for the obs stack (infra-gap-analysis.md #7, ADR 0015).
+# Single-binary, local-disk storage: right-sized for the dev box, same "self-hosted, cap retention"
+# posture as Prometheus. Alloy forwards OTLP/gRPC here on :4317; Grafana queries it on :3200.
+# No Ansible vars (mounted from files/), mirroring blackbox.yml / config.alloy.
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  # Flush traces to the backend promptly so they're queryable soon after a request (dev box; we
+  # value freshness over batching efficiency).
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    # Cap on-disk trace retention (bounds the tempodata volume on a box with no managed storage) —
+    # the trace analogue of Prometheus's retention cap (CLAUDE.md observability note).
+    block_retention: 48h
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+
+# --- Metrics-generator: derive RED metrics + a service graph from traces, remote_write to
+# Prometheus (infra-gap-analysis.md #7 follow-up, ADR 0015). This is what powers the latency /
+# throughput / error dashboard + Grafana's service map — trace search alone can't draw those.
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true        # link a latency bucket back to an example trace
+  traces_storage:
+    path: /var/tempo/generator/traces   # local-blocks needs somewhere to stage recent traces
+  processor:
+    span_metrics:
+      # also break the histogram down by HTTP route/status so the dashboard can chart per-endpoint
+      dimensions: [http.method, http.route, http.status_code]
+    service_graphs: {}
+    local_blocks: {}                # enables TraceQL metrics (| rate(), | quantile_over_time) in Explore
+
+# Processors are opt-in per tenant; this dev box is single-tenant, so enable them as the default.
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [span-metrics, service-graphs, local-blocks]
+
+usage_report:
+  reporting_enabled: false

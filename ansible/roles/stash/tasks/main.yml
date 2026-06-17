@@ -1,0 +1,98 @@
+---
+# Push the locally-built static stash binary and restart the server (and the
+# agent, which shares the binary). See defaults/main.yml for the scope note.
+#
+# The binary is staged into THIS role's files/ before the run. It's built in the
+# sibling ~/Projects/stash repo, which the ./ac control container does NOT mount —
+# so a host path isn't visible inside the container, but the repo (hence files/)
+# is. Use `bin/deploy-stash` (build + stage + run), or stage manually:
+#   cp ~/Projects/stash/stash ansible/roles/stash/files/stash
+
+- name: Check the staged stash binary exists
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/stash"   # absolute path inside the mounted repo
+  register: _staged
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Require the staged binary
+  ansible.builtin.assert:
+    that: _staged.stat.exists
+    fail_msg: >-
+      No staged binary at roles/stash/files/stash — run `bin/deploy-stash`, or:
+      cp ~/Projects/stash/stash ansible/roles/stash/files/stash
+    success_msg: "Staged stash binary found"
+  run_once: true
+
+# stash is host-networked (systemd binds the tailnet IP:8200). Let docker
+# containers reach it via the host — specifically the observability blackbox
+# exporter probing the LOCAL node's /v1/health, which otherwise hairpins through
+# the tailnet IP and is dropped by ufw (cross-box probes ride tailscale0, already
+# allowed). Mirrors the keycloak role's 8080/9000 allowance. The public interface
+# stays denied; the docker range is non-routable from the internet.
+- name: Allow docker containers to reach stash (host-networked, local probe hairpin)
+  community.general.ufw:
+    rule: allow
+    src: "172.16.0.0/12"
+    port: "8200"
+    proto: tcp
+    comment: "blackbox -> stash /v1/health (host net)"
+
+# Ship the per-node audit log to Loki (one durable, queryable view across the
+# cluster). A drop-in sets STASH_AUDIT_LOKI without touching the hand-managed unit.
+- name: Ensure stash.service drop-in dir
+  ansible.builtin.file:
+    path: /etc/systemd/system/stash.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure audit-log shipping to Loki (systemd drop-in)
+  ansible.builtin.template:
+    src: stash-audit-loki.conf.j2
+    dest: /etc/systemd/system/stash.service.d/audit-loki.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart stash
+
+# Anchor the audit chain head to a trusted RFC 3161 timestamp authority, so the
+# log carries externally-verifiable timestamps a malicious key holder can't
+# backdate. Drop-in sets STASH_AUDIT_TSA without touching the hand-managed unit.
+- name: Configure audit-log anchoring to a trusted timestamp authority (systemd drop-in)
+  ansible.builtin.template:
+    src: stash-audit-tsa.conf.j2
+    dest: /etc/systemd/system/stash.service.d/audit-tsa.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart stash
+
+# copy is atomic (temp file + rename), so an in-flight read is never served a
+# half-written binary; the running process keeps the old inode until restarted.
+- name: Install the stash server binary
+  ansible.builtin.copy:
+    src: stash                            # roles/stash/files/stash (staged; see header)
+    dest: "{{ stash_bin_dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  notify:
+    - restart stash
+    - restart stash-agent
+
+# Pick up the new binary now (don't wait for the end-of-play handler flush), so
+# verification later in the same run sees the upgraded server.
+- name: Apply restarts
+  ansible.builtin.meta: flush_handlers
+
+- name: Confirm the running version
+  ansible.builtin.command: "{{ stash_bin_dest }} version"
+  register: _stash_ver
+  changed_when: false
+
+- name: Show the deployed version
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}: {{ _stash_ver.stdout }}"

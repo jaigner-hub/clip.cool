@@ -1,0 +1,10 @@
+# Managed by Ansible (roles/stash). Sets STASH_AUDIT_LOKI so stash ships its
+# per-node audit log to Loki. A systemd drop-in, so the hand-managed main unit
+# (ExecStart + unseal credential) is never touched. stash reads this env as the
+# default for its -audit-loki flag.
+[Service]
+{% if inventory_hostname in groups['primary'] %}
+Environment="STASH_AUDIT_LOKI=http://127.0.0.1:3100"
+{% else %}
+Environment="STASH_AUDIT_LOKI=http://{{ hostvars[groups['primary'][0]].ansible_host }}:3100"
+{% endif %}

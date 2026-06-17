@@ -1,0 +1,17 @@
+---
+drain_dir: /opt/keygrip/drain
+# Per-host identity: the origin/Patroni member name for THIS box and its peer. Origin name ==
+# Patroni member name == tunnel name (vent-keygrip / vent-keygrip2).
+drain_host_identity:
+  vent.dog:  { mine: "vent-keygrip",  other: "vent-keygrip2" }
+  vent.dog2: { mine: "vent-keygrip2", other: "vent-keygrip" }
+# Cloudflare LB pool the origins live in (resolved by name in drain.sh).
+drain_cf_pool_name: "keygrip"
+drain_cf_account_id: "713923b79dee34635d5a5a1d8da34fbc"
+
+# --- Unattended security updates + graceful auto-reboot on kernel updates ---
+drain_auto_updates: true
+# STAGGER the reboot windows so the two boxes never auto-reboot together (each drains the other's
+# health-check before draining itself, but staggering guarantees only one is ever down). Per-host
+# override in inventory; default below.
+drain_reboot_time: "04:00"

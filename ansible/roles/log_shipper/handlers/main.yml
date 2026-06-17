@@ -1,0 +1,5 @@
+---
+# Alloy reads config.alloy at start; a bind-mount change needs a restart.
+- name: Restart log-shipper
+  ansible.builtin.command: docker compose -f {{ log_shipper_dir }}/compose.yml restart alloy
+  changed_when: true

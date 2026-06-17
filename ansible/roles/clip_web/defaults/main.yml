@@ -1,0 +1,31 @@
+---
+app_dir: /opt/keygrip/webapp   # platform install root stays /opt/keygrip (shared with the chat stack)
+app_hostname: clip.cool
+# Tailnet (Tailscale Serve) host:port the app is also reachable on — the break-glass path:
+# the ONLY host where the admin password login form is served (ADR 0002; /admin itself is public).
+# Must match the serve mapping in playbooks/serve.yml and the clip-web redirect URI in
+# roles/keycloak_realm.
+app_tailnet_host: vent-keygrip.tail1ec6c3.ts.net
+app_tailnet_https_port: 8447
+keycloak_issuer: "https://id.vent.dog/realms/keygrip"
+# Internal Keycloak base for JWKS + admin API (skips Cloudflare's urllib-UA 403). Keycloak is
+# host-networked on each box (HA cluster), so the app reaches its LOCAL Keycloak via host-gateway
+# (webapp/worker already carry extra_hosts: host.docker.internal:host-gateway).
+keycloak_internal_base: "http://host.docker.internal:8080"
+app_db_name: clip
+app_db_user: clip
+app_postgres_image: "postgres:16-alpine"
+postgres_exporter_image: "quay.io/prometheuscommunity/postgres-exporter:v0.16.0"
+# Procrastinate worker replicas (ADR 0008). >1 proves multiple workers coordinate via Postgres
+# row-locking (no double-processing). Cheap — each is a single async process (~55 MiB idle).
+# NOTE: this is N processes on ONE box (node-level). True cross-box/datacenter HA coordination
+# must be re-tested once a 2nd-region origin exists (funding-gated) — see docs/foundation-backlog.md.
+worker_replicas: 4
+
+# --- Distributed tracing (infra-gap-analysis.md #7, ADR 0015) ---
+# OTLP/gRPC endpoint the app exports spans to: Alloy on the shared `edge` net, which forwards to
+# Tempo. Blank it to disable tracing (keygrip/tracing.py is a no-op without this).
+app_otel_endpoint: "http://alloy:4317"
+# Sample EVERY request on the dev box — low traffic, and you want to see the call you just made
+# (10% sampling makes a handful of manual API calls vanish). Dial down per-env once prod has volume.
+app_otel_sample_rate: "1.0"

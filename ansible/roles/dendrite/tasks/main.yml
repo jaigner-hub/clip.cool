@@ -1,0 +1,56 @@
+---
+- name: Ensure dendrite dirs exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ dendrite_dir }}"
+    - "{{ dendrite_dir }}/keys"
+
+- name: Check for the Dendrite signing key
+  ansible.builtin.stat:
+    path: "{{ dendrite_dir }}/keys/matrix_key.pem"
+  register: _matrix_key
+
+# Generate the homeserver signing key once. It must persist across deploys (it's the server's
+# federation identity), so it lives on a host dir, not in the image.
+- name: Generate the Dendrite signing key (first run only)
+  ansible.builtin.command:
+    cmd: >-
+      docker run --rm --entrypoint /usr/bin/generate-keys
+      -v {{ dendrite_dir }}/keys:/keys
+      {{ dendrite_image }} --private-key /keys/matrix_key.pem
+  when: not _matrix_key.stat.exists
+  changed_when: true
+
+- name: Render dendrite config (secrets)
+  ansible.builtin.template:
+    src: dendrite.yaml.j2
+    dest: "{{ dendrite_dir }}/dendrite.yaml"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Render dendrite compose
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ dendrite_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure the shared edge network exists
+  ansible.builtin.command: docker network create keygrip-edge
+  register: _edge_net
+  changed_when: _edge_net.rc == 0
+  failed_when: _edge_net.rc != 0 and 'already exists' not in _edge_net.stderr
+
+- name: Bring up Dendrite
+  community.docker.docker_compose_v2:
+    project_src: "{{ dendrite_dir }}"
+    state: present
+    pull: missing

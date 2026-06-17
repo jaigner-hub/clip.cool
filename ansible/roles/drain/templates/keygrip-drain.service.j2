@@ -1,0 +1,17 @@
+[Unit]
+Description=keygrip — drain this box from the Cloudflare LB on shutdown, re-enable on boot (ADR 0016)
+# Order after docker so on SHUTDOWN this stops FIRST (drain runs while Patroni/HAProxy are still up
+# for the switchover); on BOOT it starts after docker so the app can come up before we undrain.
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={{ drain_dir }}/drain.sh undrain
+ExecStop={{ drain_dir }}/drain.sh drain
+TimeoutStartSec=600
+TimeoutStopSec=150
+
+[Install]
+WantedBy=multi-user.target

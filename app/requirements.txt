@@ -1,0 +1,32 @@
+# Direct dependencies, pinned EXACTLY (==). Pins (not ranges) are deliberate: Dependabot's
+# fetch-metadata can only classify an update's semver type (minor/patch vs major) when it has a
+# concrete previous->new version, which range bumps don't provide. Ranges left update-type null, so
+# dependabot-auto-merge.yml's minor/patch gate never matched and nothing auto-merged. With pins,
+# Dependabot reports real versions: the minor/patch group auto-merges, majors come solo for review.
+# Bump these via Dependabot PRs, not by hand.
+Django==6.0.6
+mozilla-django-oidc==5.0.2
+gunicorn==26.0.0
+uvicorn[standard]==0.49.0
+uvicorn-worker==0.4.0
+whitenoise==6.12.0
+psycopg[binary]==3.3.4
+django-prometheus==2.5.0
+python-dotenv==1.2.2
+django-ninja==1.6.2
+PyJWT[crypto]==2.13.0
+django-hijack==3.7.8
+procrastinate==3.8.1
+sentry-sdk==2.62.0
+httpx==0.28.1
+beautifulsoup4==4.15.0
+# Distributed tracing → OTLP/gRPC → Alloy → Tempo (infra-gap-analysis.md #7, ADR 0015). No-op
+# unless OTEL_EXPORTER_OTLP_ENDPOINT is set (keygrip/tracing.py). SDK + instrumentation versions
+# skew by design (sdk 1.x / instrumentation 0.Nx); bump as a group via Dependabot.
+# NB: we serve on uvicorn (ASGI), so web request spans come from the -asgi middleware wrapped in
+# keygrip/asgi.py — NOT -django, whose middleware only traces the WSGI path (verified empirically).
+opentelemetry-sdk==1.42.1
+opentelemetry-exporter-otlp-proto-grpc==1.42.1
+opentelemetry-instrumentation-asgi==0.63b1
+opentelemetry-instrumentation-psycopg==0.63b1
+opentelemetry-instrumentation-httpx==0.63b1

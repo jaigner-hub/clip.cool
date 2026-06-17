@@ -1,0 +1,42 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- stop HTMX injecting an inline <style> for indicators (would violate style-src 'self') -->
+  <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+  <title>keygrip · CSP lab</title>
+  <link rel="stylesheet" href="{% static 'web/keygrip.css' %}">
+  <script src="{% static 'web/vendor/htmx.min.js' %}" defer></script>
+  <script src="{% static 'web/lab.js' %}" defer></script>
+  <script src="{% static 'web/vendor/alpine-csp.min.js' %}" defer></script>
+</head>
+<body>
+  <main class="kg-shell">
+    <div class="kg-wordmark">keygrip</div>
+    <section class="kg-card">
+      <h1 class="kg-title">CSP lab</h1>
+      <p class="kg-sub">Strict CSP — nonce only, no <code>unsafe-inline</code>/<code>unsafe-eval</code>. If all three below work with a clean console, HTMX + Alpine are CSP-safe.</p>
+
+      <h2 class="kg-h2">1 · HTMX (fragment swap over the network)</h2>
+      <button class="kg-btn" hx-get="{% url 'lab_ping' %}" hx-target="#htmx-out" hx-swap="innerHTML">Ping the server</button>
+      <div id="htmx-out" class="kg-out kg-muted">— not pinged yet —</div>
+
+      <h2 class="kg-h2">2 · Alpine (CSP build)</h2>
+      <div x-data="counter" class="kg-row">
+        <button class="kg-btn" @click="inc">Count: <span x-text="count">0</span></button>
+        <button class="kg-btn kg-btn-ghost" @click="reset">reset</button>
+      </div>
+
+      <h2 class="kg-h2">3 · Nonce'd inline script</h2>
+      <p id="nonce-out" class="kg-out kg-muted">inline script did not run (no nonce ⇒ blocked)</p>
+      <script nonce="{{ request.csp_nonce }}">
+        document.getElementById('nonce-out').textContent = 'inline script ran ✓ (nonce matched the header)';
+      </script>
+
+      <p><a class="kg-back" href="/">← back</a></p>
+    </section>
+  </main>
+</body>
+</html>

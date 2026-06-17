@@ -1,0 +1,100 @@
+# Self-contained local app stack for the `./mc` tool — one isolated instance per git worktree.
+# `mc` invokes this with a per-instance project name (`-p kg-<name>`) and host ports (env vars),
+# so compose auto-namespaces the containers, volumes, and network per instance. Unlike the prod
+# stack (ansible/roles/keygrip_web/templates/compose.yml.j2) there's no edge network, pg-exporter,
+# or Tailscale wiring — just the app, its own Postgres, and a worker. The worktree's app/ is mounted
+# over the image so `runserver` live-reloads on edits (deps still come from the image at /usr/local).
+#
+# Not meant to be run by hand — use `./mc <name> up`. See app/README.md ("Parallel instances").
+name: keygrip-mc   # overridden per-instance by `mc` via `-p kg-<name>`
+
+# Dev settings + Postgres (so Procrastinate runs). Login uses the real dev Keycloak (id.vent.dog);
+# `mc` injects OIDC_RP_CLIENT_SECRET from the SOPS dev vault so login works end-to-end.
+x-app-env: &app_env
+  DJANGO_SETTINGS_MODULE: keygrip.settings.dev
+  DJANGO_DEBUG: "true"
+  DEV_DB: postgres
+  DB_HOST: appdb
+  DB_PORT: "5432"
+  DB_NAME: keygrip
+  DB_USER: keygrip
+  DB_PASSWORD: keygrip
+  DJANGO_SECRET_KEY: dev-insecure-change-me
+  # Cookies aren't isolated by port, so each instance namespaces its session/CSRF cookies by this
+  # (unique) host port — see keygrip/settings/dev.py. Without it parallel instances clobber each
+  # other's OIDC handshake on the shared `localhost` cookie jar.
+  MC_WEB_PORT: ${MC_WEB_PORT:-8000}
+  # Instance name (e.g. "demo") — drives the "dev instance" banner across the top of every page so
+  # a local tab is never mistaken for prod (keygrip/settings/dev.py → KG_INSTANCE_LABEL).
+  MC_INSTANCE_NAME: ${MC_INSTANCE_NAME:-}
+  KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-https://id.vent.dog/realms/keygrip}
+  OIDC_RP_CLIENT_ID: keygrip-web
+  OIDC_RP_CLIENT_SECRET: ${OIDC_RP_CLIENT_SECRET:-}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  # Self-serve API credentials (ADR 0011) mint Keycloak service-account clients via the admin API.
+  # The admin API (/admin/*) on id.vent.dog is behind Cloudflare Access, so we reach Keycloak over
+  # the TAILNET instead (Tailscale Serve, no Access) — `mc` resolves its IP and maps it via
+  # extra_hosts below. NOTE: minting creates real kg-* clients in the dev realm. Requires the dev
+  # box to be on the tailnet; `mc` injects KC_ADMIN_CLIENT_SECRET from the SOPS dev vault.
+  KEYCLOAK_ADMIN_BASE: ${KEYCLOAK_ADMIN_BASE:-https://vent-keygrip.tail1ec6c3.ts.net}
+  KEYCLOAK_REALM: keygrip
+  KC_ADMIN_CLIENT_ID: keygrip-kc-admin
+  KC_ADMIN_CLIENT_SECRET: ${KC_ADMIN_CLIENT_SECRET:-}
+
+services:
+  appdb:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keygrip
+      POSTGRES_USER: keygrip
+      POSTGRES_PASSWORD: keygrip
+    volumes:
+      - appdata:/var/lib/postgresql/data
+    ports:
+      - "${MC_DB_PORT:-5500}:5432"   # host access for psql/dbshell; container-internal stays 5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keygrip -d keygrip"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  webapp:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # runserver (not gunicorn) for live reload + clear tracebacks. Source is mounted below.
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    environment:
+      <<: *app_env
+    volumes:
+      - ./:/app   # worktree app/ over the image's /app — edits reload live (deps live in /usr/local)
+    ports:
+      - "${MC_WEB_PORT:-8000}:8000"
+    extra_hosts:
+      - "vent-keygrip.tail1ec6c3.ts.net:${TS_KEYCLOAK_IP:-127.0.0.1}"  # tailnet Keycloak (admin API)
+    depends_on:
+      appdb:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Procrastinate, all four queues (ADR 0008). On a fresh DB it restarts until `mc migrate` creates
+    # the procrastinate_* tables — expected, harmless.
+    command: ["python", "manage.py", "procrastinate", "worker", "--queues", "default,batch,workflow,aeo"]
+    environment:
+      <<: *app_env
+    volumes:
+      - ./:/app
+    extra_hosts:
+      - "vent-keygrip.tail1ec6c3.ts.net:${TS_KEYCLOAK_IP:-127.0.0.1}"  # tailnet Keycloak (admin API)
+    depends_on:
+      appdb:
+        condition: service_healthy
+
+volumes:
+  appdata:

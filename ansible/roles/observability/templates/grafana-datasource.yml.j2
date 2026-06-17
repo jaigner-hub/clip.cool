@@ -1,0 +1,47 @@
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus            # dashboards reference this uid
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      # Logs → trace: a log line carrying trace_id=<hex> becomes a click-through to that Tempo
+      # trace. The app's spans and logs share the OTel trace_id, so this stitches the two together.
+      derivedFields:
+        - name: TraceID
+          matcherType: regex
+          matcherRegex: 'trace_id[=:"]+([0-9a-f]+)'
+          url: '${__value.raw}'
+          datasourceUid: tempo
+  # Trace store (infra-gap-analysis.md #7, ADR 0015). Grafana queries Tempo on :3200.
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      # Trace → logs: from a span, jump to the matching container's logs in Loki around that time,
+      # correlating on the trace_id (Tempo's native tracesToLogsV2 integration).
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+        filterByTraceID: true
+        customQuery: true
+        query: '{stack="clip-web"} | trace_id="${__trace.traceId}"'
+      nodeGraph:
+        enabled: true
+      # Service map / node graph in Explore is drawn from Tempo's service-graph metrics, which the
+      # metrics-generator remote_writes into Prometheus (ADR 0015).
+      serviceMap:
+        datasourceUid: prometheus

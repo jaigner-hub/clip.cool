@@ -1,0 +1,27 @@
+---
+# Disable root SSH login. Root stays reachable via the provider console (break-glass, ADR 0002).
+# Run ONLY after confirming you can SSH as the admin user AND `sudo` works.
+#   ./ac ansible-playbook playbooks/disable-root-ssh.yml -e confirm_no_root=yes
+- name: Disable root SSH login
+  hosts: dev
+  become: true
+  tasks:
+    - name: Require explicit confirmation
+      ansible.builtin.assert:
+        that: confirm_no_root | default('') == 'yes'
+        fail_msg: "Refusing without -e confirm_no_root=yes (verify admin SSH + sudo first)."
+
+    - name: PermitRootLogin no (drop-in ordered before cloud defaults)
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/10-no-root-login.conf
+        content: "PermitRootLogin no\n"
+        mode: "0644"
+
+    - name: Validate the full sshd config before reloading
+      ansible.builtin.command: sshd -t
+      changed_when: false
+
+    - name: Reload sshd
+      ansible.builtin.service:
+        name: ssh
+        state: reloaded

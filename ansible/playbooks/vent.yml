@@ -1,0 +1,21 @@
+---
+# Deploy Vent (chat.vent.dog): Dendrite + LiveKit + the Go API + SPA, onto vent.dog.
+# Single active instance for now (Dendrite monolith can't share its DB with a second node;
+# LiveKit is single-node) — REBOOT.md active/passive.
+#
+# Prereqs:
+#   - postgres-ha applied with the vent + dendrite databases (./ac ansible-playbook playbooks/postgres-ha.yml)
+#   - keycloak-realm applied (vent-web client) — done
+#   - GHCR images public (ghcr.io/jaigner-hub/vent-{server,client})
+#   - SOPS: vault_vent_db_password, vault_dendrite_db_password, vault_dendrite_registration_shared_secret,
+#           vault_vent_jwt_secret, vault_vent_cred_enc_key, vault_vent_web_client_secret,
+#           vault_livekit_api_key, vault_livekit_api_secret
+#
+#   ./ac ansible-playbook playbooks/vent.yml
+- name: Vent chat server
+  hosts: primary          # vent.dog only (single active backend)
+  become: true
+  roles:
+    - dendrite            # Matrix homeserver (must be up before vent-server provisions users)
+    - livekit             # WebRTC SFU (host-net, public UDP)
+    - vent_app            # Go API + SPA/edge nginx (the chat.vent.dog origin)

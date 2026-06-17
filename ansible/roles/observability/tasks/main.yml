@@ -1,0 +1,138 @@
+---
+- name: Ensure observability dir
+  ansible.builtin.file:
+    path: "{{ obs_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Render prometheus.yml
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ obs_dir }}/prometheus.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Prometheus
+
+- name: Render Prometheus alert rules
+  ansible.builtin.template:
+    src: rules.yml.j2
+    dest: "{{ obs_dir }}/rules.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Prometheus
+
+- name: Render Alertmanager config (Resend SMTP key — 0600, owned by the container uid)
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: "{{ obs_dir }}/alertmanager.yml"
+    owner: "65534"      # nobody — prom/alertmanager runs as this uid, so it can read 0600
+    group: "65534"
+    mode: "0600"
+  no_log: true
+  notify: Restart Alertmanager
+
+- name: Render Loki config
+  ansible.builtin.template:
+    src: loki-config.yml.j2
+    dest: "{{ obs_dir }}/loki-config.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Loki
+
+- name: Ensure Loki ruler rules dir
+  ansible.builtin.file:
+    path: "{{ obs_dir }}/loki-rules"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render Loki ruler rules (break-glass alert, ADR 0002)
+  ansible.builtin.template:
+    src: loki-rules.yml.j2
+    dest: "{{ obs_dir }}/loki-rules/break-glass.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Loki
+
+- name: Install Alloy config (log shipper)
+  ansible.builtin.copy:
+    src: config.alloy
+    dest: "{{ obs_dir }}/config.alloy"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Alloy
+
+- name: Install Blackbox exporter config
+  ansible.builtin.copy:
+    src: blackbox.yml
+    dest: "{{ obs_dir }}/blackbox.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Blackbox
+
+- name: Install Tempo config (trace store)
+  ansible.builtin.copy:
+    src: tempo.yml
+    dest: "{{ obs_dir }}/tempo.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Tempo
+
+- name: Render Grafana datasource provisioning
+  ansible.builtin.template:
+    src: grafana-datasource.yml.j2
+    dest: "{{ obs_dir }}/grafana-datasource.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Grafana   # provisioned datasources only load at startup
+
+- name: Render Grafana dashboard provider
+  ansible.builtin.template:
+    src: grafana-dashboard-provider.yml.j2
+    dest: "{{ obs_dir }}/grafana-dashboard-provider.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install Grafana dashboards
+  ansible.builtin.copy:
+    src: dashboards/
+    dest: "{{ obs_dir }}/dashboards/"
+    owner: root
+    group: root
+    mode: "0644"
+    directory_mode: "0755"
+
+- name: Render .env (secrets)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ obs_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Render compose.yml
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ obs_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Bring up the observability stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ obs_dir }}"
+    state: present
+    pull: missing

@@ -1,0 +1,12 @@
+---
+- name: restart pgbouncer
+  community.docker.docker_compose_v2:
+    project_src: "{{ pg_ha_dir }}"
+    services: [pgbouncer]
+    state: restarted
+
+- name: restart haproxy
+  community.docker.docker_compose_v2:
+    project_src: "{{ pg_ha_dir }}"
+    services: [haproxy]
+    state: restarted

@@ -1,0 +1,42 @@
+// Grafana Alloy — log shipper for a non-observability app box (roles/log_shipper).
+// Streams this box's Docker container logs to the observability Loki on the
+// primary's tailnet IP, labelled host={{ inventory_hostname }} so the HA pair is
+// distinguishable. (The primary runs its own Alloy via roles/observability.)
+discovery.docker "all" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "all" {
+  targets = discovery.docker.all.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "stack"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+  rule {
+    target_label = "host"
+    replacement  = "{{ inventory_hostname }}"
+  }
+}
+
+loki.source.docker "all" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.all.output
+  forward_to = [loki.write.default.receiver]
+  refresh_interval = "15s"
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://{{ log_shipper_loki }}/loki/api/v1/push"
+  }
+}

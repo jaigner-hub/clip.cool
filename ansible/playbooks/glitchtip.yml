@@ -1,0 +1,11 @@
+---
+# Self-hosted error tracking (Sentry-compatible). UI on the Tailscale plane via serve :8445;
+# the app sends events to gt-web:8080 over the edge net. Auth is **Keycloak SSO** (allauth OIDC
+# SocialApp, upserted by the role from GT_OIDC_*); the `glitchtip` realm client lives in
+# roles/keycloak_realm. The app DSN goes in SOPS (vault_sentry_dsn, host gt-web:8080).
+#   ./ac ansible-playbook playbooks/glitchtip.yml   (run keycloak-realm.yml first for the client)
+- name: GlitchTip (self-hosted error tracking)
+  hosts: primary
+  become: true
+  roles:
+    - glitchtip

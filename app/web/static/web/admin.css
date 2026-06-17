@@ -1,0 +1,107 @@
+/* Keygrip brand overlay for the Django admin — a lightweight reskin via Django's own
+   admin CSS variables + brand fonts. (For a full redesign, django-unfold is the option.)
+   Tokens mirror docs/style-guide.md / keygrip.css. */
+/* Full weight set, mirroring keygrip.css — the wordmark renders Tid at weight 400, so without
+   Tid-Light/Regular it fell back to Georgia (the "different header font" bug). */
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('fonts/PlusJakartaSans-400.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('fonts/PlusJakartaSans-500.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('fonts/PlusJakartaSans-600.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('fonts/PlusJakartaSans-700.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Tid'; src: url('fonts/Tid-Light.woff2') format('woff2');   font-weight: 300;     font-style: normal; font-display: swap; }
+@font-face { font-family: 'Tid'; src: url('fonts/Tid-Regular.woff2') format('woff2'); font-weight: 400 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Tid'; src: url('fonts/Tid-Bold.woff2') format('woff2');    font-weight: 600 700; font-style: normal; font-display: swap; }
+
+/* keygrip brand tokens (mirror keygrip.css / docs/style-guide.md). */
+:root {
+  --kg-ink: #0F172A;
+  --kg-cyan: #61D9EF;
+  --kg-cyan-strong: #2bb6d1;
+  --kg-canvas: #EEF2F6;
+  --kg-surface: #FFFFFF;
+  --kg-line: #E2E8F0;
+  --kg-header: #CBD5E1;          /* slate header strip — darker than canvas + row stripes so
+                                    table/section headers don't blend with alternating rows */
+
+  --primary: var(--kg-ink);      /* buttons / selected states stay ink */
+  --secondary: var(--kg-ink);
+  --accent: var(--kg-cyan);
+  --primary-fg: #ffffff;
+
+  /* Page = canvas, like the app shell. Modules stay white cards (below) so table headers
+     (--darkened-bg) keep sitting on white — the grey only shows BEHIND the cards. */
+  --body-bg: var(--kg-canvas);
+  --body-fg: var(--kg-ink);
+
+  --link-fg: var(--kg-cyan-strong);
+  --link-hover-color: var(--kg-ink);
+  --link-selected-fg: var(--kg-cyan-strong);
+
+  /* Header: LIGHT, matching the app shell (white bar, ink serif wordmark, thin line). */
+  --header-bg: var(--kg-surface);
+  --header-color: var(--kg-ink);
+  --header-branding-color: var(--kg-ink);
+  --header-link-color: var(--kg-ink);
+
+  --button-bg: var(--kg-ink);
+  --button-hover-bg: var(--kg-cyan-strong);
+  --default-button-bg: var(--kg-ink);
+  --default-button-hover-bg: var(--kg-cyan-strong);
+  --button-fg: #ffffff;
+
+  --selected-row: rgba(97, 217, 239, 0.14);
+  --object-tools-bg: var(--kg-ink);
+  --object-tools-hover-bg: var(--kg-cyan-strong);
+
+  --font-family-primary: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --kg-serif: 'Tid', Georgia, "Times New Roman", serif;
+}
+
+body { font-family: var(--font-family-primary); }
+
+/* Headings in the brand serif (Tid), like the app — body/UI stay Plus Jakarta Sans. */
+#content h1, #content-related h2, .colMS h1, .dashboard h1 { font-family: var(--kg-serif); font-weight: 600; }
+
+/* Header: white bar + thin line (matches .kg-header in the app), brand + nav laid out left. */
+#header { border-bottom: 1px solid var(--kg-line); }
+#branding { display: flex; align-items: center; gap: 1.5rem; }
+#user-tools, #user-tools a, #user-tools button { color: var(--kg-ink); }
+
+/* Brand wordmark — ink serif, like the app's .kg-brand. */
+.kg-admin-brand { font-family: 'Tid', Georgia, serif; font-size: 1.6rem; color: var(--kg-ink) !important; text-decoration: none; }
+
+/* App nav mirrored into the admin header (.kg-nav parity: ink-muted, hover ink + cyan underline). */
+.kg-admin-nav { display: flex; gap: 1rem; }
+.kg-admin-nav a { font-size: 0.95rem; color: rgba(15, 23, 42, 0.7); text-decoration: none; padding-bottom: 2px; border-bottom: 2px solid transparent; }
+.kg-admin-nav a:hover { color: var(--kg-ink); border-bottom-color: var(--kg-cyan); }
+
+/* Modules = white cards on the canvas (mirrors the app's .kg-card), so table headers / striping
+   stay on white and never look lighter than the page behind them. */
+.module { background: var(--kg-surface); border: 1px solid var(--kg-line); }
+
+/* Section/table headers: a slate strip (darker than canvas + the row stripes) so they read as
+   headers and don't blend with alternating rows. Breadcrumbs stay on the lighter canvas. */
+.module h2, .module caption, .inline-group h2, thead th { background: var(--kg-header); color: var(--kg-ink); }
+div.breadcrumbs { background: var(--kg-canvas); color: var(--kg-ink); }
+div.breadcrumbs a { color: var(--kg-cyan-strong); }
+
+/* Admin login: SSO is the primary action (full-width brand button); the username/password form
+   below it is break-glass only (ADR 0002). All styling lives here (no inline styles — strict CSP). */
+.kg-sso-row { padding: 0; margin: 0 0 1rem; background: none; border: none; box-shadow: none; }
+.kg-sso-btn { display: block; width: 100%; box-sizing: border-box; text-align: center;
+  padding: 12px 16px; font-weight: 600; background: var(--kg-ink); color: var(--kg-surface);
+  border-radius: 6px; text-decoration: none; }
+.kg-sso-btn:hover { background: #1e293b; color: var(--kg-surface); }
+.kg-sso-or { text-align: center; color: rgba(15, 23, 42, 0.55); font-size: 0.85rem;
+  text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 1rem; }
+
+/* Dev-instance banner (mirrors .kg-devbar in keygrip.css) — fixed full-width bar on local/mc
+   instances so an admin tab is never mistaken for prod. body.kg-dev pads content below it. */
+.kg-devbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  background: var(--kg-cyan); color: var(--kg-ink);
+  padding: 0.35rem 1rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em;
+  font-family: var(--kg-sans, sans-serif);
+  border-bottom: 1px solid var(--kg-cyan-strong);
+}
+body.kg-dev { padding-top: 2.1rem; }   /* clear the fixed dev bar */

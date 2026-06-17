@@ -1,0 +1,51 @@
+---
+# Dedicated automation admin (NOT the human admin) that kcc authenticates as.
+# Create it once in the master realm with the `admin` role; password in SOPS.
+keycloak_admin_user: automation
+# keycloak-config-cli image (tag is <kcc-version>-<keycloak-version>; nearest 26.x build).
+kcc_image: "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+# Keycloak is host-networked (ADR 0016 HA cluster), so there is no `keycloak` container on the
+# bridge to DNS-resolve. kcc (a bridge container) reaches it via the host gateway, like the app —
+# the keycloak role opens ufw 8080 for the docker bridge for exactly this.
+keycloak_internal_url: "http://host.docker.internal:8080"
+keycloak_network: "keygrip-keycloak_internal"   # docker network of the keycloak compose stack
+keycloak_container: "keygrip-keycloak-keycloak-1"   # host-networked container we kcadm into; not a secret (gitleaks:allow)
+keycloak_config_dir: /opt/keygrip/keycloak-config
+kcc_env_file: /opt/keygrip/keycloak-config.env
+# Redirect URIs for the Django app OIDC client (dev placeholders; refine when the app is deployed).
+# The tailnet entry is for staff SSO into /admin over Tailscale Serve (:8447) — /admin is tailnet-only
+# (ADR 0002). Same pattern as grafana/glitchtip below (tailnet host:port carried in the callback).
+clip_web_redirect_uris:
+  - "http://localhost:8000/*"
+  - "http://127.0.0.1:8000/*"
+  - "https://clip.cool/*"
+  - "https://vent-keygrip.tail1ec6c3.ts.net:8447/*"
+# The `./mc` local-dev tool gives each worktree instance a web port in this range; every port is
+# registered as a redirect URI (in the template) so OIDC login works on any instance. MUST stay in
+# sync with the WEB_PORT range in `./mc` (8000 + offset, offset 10..99).
+keygrip_mc_web_port_min: 8010
+keygrip_mc_web_port_max: 8099
+# Public PKCE client used only by the Swagger UI "Authorize" button (browser, no secret).
+api_docs_redirect_uris:
+  - "https://clip.cool/*"
+  - "http://localhost:8000/*"
+  - "http://127.0.0.1:8000/*"
+# Groups every new user (incl. brokered Google logins) auto-joins. Least-privilege baseline.
+keygrip_default_groups:
+  - "/viewers"
+# Grafana OIDC client redirect (tailnet-only, Tailscale Serve on :8443).
+grafana_redirect_uri: "https://vent-keygrip.tail1ec6c3.ts.net:8443/login/generic_oauth"
+# GlitchTip OIDC client redirect (tailnet-only, Tailscale Serve on :8445; allauth callback path).
+glitchtip_redirect_uri: "https://vent-keygrip.tail1ec6c3.ts.net:8445/accounts/oidc/keycloak/login/callback/"
+# Transactional email (Resend). `from` must be on a Resend-verified domain (vent.dog).
+keycloak_smtp_from: "noreply@vent.dog"
+keycloak_smtp_from_display: "Keygrip"
+
+# --- Vent chat (chat.vent.dog) OIDC client ---
+# The Vent Go server is the confidential RP: the browser logs in against this realm, the Go server
+# exchanges the code at /api/auth/callback, then provisions/refreshes the user's Dendrite account
+# behind the scenes (vent/REBOOT.md). Secret rides kcc.env.j2 (vault_vent_web_client_secret in SOPS).
+vent_web_redirect_uris:
+  - "https://chat.vent.dog/api/auth/callback"
+  - "http://localhost:8080/api/auth/callback"   # dev: Go server direct
+  - "http://localhost:3000/api/auth/callback"   # dev: through the Vite proxy

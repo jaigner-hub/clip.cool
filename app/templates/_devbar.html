@@ -1,0 +1,11 @@
+{% comment %}
+Dev-instance banner — included by base.html (app) and admin/base_site.html (admin). Only renders
+when KG_INSTANCE_LABEL is set (dev/mc instances), never in prod. Styled via .kg-devbar in both
+web/keygrip.css and web/admin.css. CSP-safe (no inline style/script).
+{% endcomment %}
+{% if instance_label %}
+<div class="kg-devbar" role="status">
+  <span aria-hidden="true">🛠️</span>
+  <span>Dev instance — <strong>{{ instance_label }}</strong> · not production</span>
+</div>
+{% endif %}

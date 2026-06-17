@@ -1,0 +1,149 @@
+---
+# Cloudflare resources for the vent-keygrip tunnel — declarative, applied via the API
+# (token: vault_cloudflare_api_token in SOPS). IDs below are not secret.
+cf_api: "https://api.cloudflare.com/client/v4"
+cf_account_id: "713923b79dee34635d5a5a1d8da34fbc"
+# Zone + tunnel IDs are RESOLVED AT RUNTIME from these names (tasks/main.yml), not hardcoded.
+# Rationale (learned the hard way): a deleted-and-re-added zone gets a BRAND-NEW zone id, and a
+# recreated tunnel a new tunnel id. Hardcoding them meant the DNS tasks silently wrote to a dead
+# zone after vent.dog was removed + re-added. Looking them up by name makes the role self-heal.
+cf_zone_name: "vent.dog"
+cf_tunnel_name: "vent-keygrip"
+
+# Tunnel ingress — the catch-all (http_status:404) is appended automatically.
+cf_ingress:
+  - hostname: "id.vent.dog"
+    service: "http://host.docker.internal:8080"   # Keycloak is host-networked (HA cluster)
+  # Django /admin is PUBLIC (same-origin, staff via Keycloak SSO session). The break-glass
+  # *password* form is host-gated in the app itself (web.views.admin_login_gate via
+  # DJANGO_BREAK_GLASS_LOGIN_HOSTS) to the Tailscale Serve host only — ADR 0002 holds without a
+  # tunnel-level 404.
+  # Block /metrics publicly (more-specific rule first); Prometheus scrapes it over the edge net.
+  - hostname: "app.vent.dog"
+    path: "^/metrics"
+    service: "http_status:404"
+  - hostname: "app.vent.dog"
+    service: "http://webapp:8000"
+  # Vent chat — single active backend on vent.dog (Dendrite/LiveKit can't run two nodes yet), so these
+  # are CNAMEs to THIS tunnel (cf_dns_hostnames), NOT load-balanced across both boxes. vent-web serves
+  # the SPA and reverse-proxies /api,/_matrix,/health to vent-server; auth is at Keycloak so it's public.
+  - hostname: "chat.vent.dog"
+    service: "http://vent-web:80"
+  # LiveKit signaling (wss). Media is direct UDP to the box's public IP (ufw-opened); only the
+  # HTTP/WS signaling rides the tunnel.
+  - hostname: "livekit.vent.dog"
+    service: "http://host.docker.internal:7880"
+
+# Hostnames that get a proxied CNAME -> the tunnel. app.vent.dog + id.vent.dog are Load Balancers
+# (cf_lb_* below); chat/livekit are single-box CNAMEs to the vent.dog tunnel (Vent is single-active).
+cf_dns_hostnames:
+  - "chat.vent.dog"
+  - "livekit.vent.dog"
+
+# --- HSTS (Strict-Transport-Security) — owned at the EDGE (ADR 0004: TLS terminates at Cloudflare) ---
+# Cloudflare emits the HSTS header for every *.vent.dog surface; the origins (app + static _headers)
+# deliberately don't. RAMP CAREFULLY:
+#   1. ship enabled + a SHORT max_age (300s) and confirm nothing on *.vent.dog breaks over HTTPS,
+#   2. raise max_age toward 31536000 (1 yr),
+#   3. flip include_subdomains only once EVERY *.vent.dog host is HTTPS-only,
+#   4. set preload LAST, at public launch — it's effectively irreversible (browsers hard-pin it,
+#      and removal means serving max-age=0 and waiting out every cached client + the preload list).
+# nosniff stays false here: X-Content-Type-Options is owned by the origins (Django SECURE_CONTENT_TYPE_NOSNIFF
+# + the marketing/portal _headers), so we don't double-manage it at the edge.
+# ⚠️ Needs the API token to carry "Zone → Zone Settings → Edit" (a 403 here means that scope is missing).
+cf_manage_hsts: true
+cf_hsts:
+  enabled: true
+  max_age: 300                # start at 5 min; ramp UP once verified
+  include_subdomains: false   # turn on only after every *.vent.dog host is HTTPS-only
+  preload: false              # set LAST, at public launch — effectively irreversible
+  nosniff: false              # nosniff is owned by the origins, not the edge
+
+# --- Load Balancers (ADR 0016 #3 + Keycloak HA): app.vent.dog + id.vent.dog across BOTH boxes ---
+# Keep tunnels (ADR 0004 no-public-ports): origins are <tunnel-uuid>.cfargotunnel.com. ONE shared
+# pool serves BOTH hostnames — no per-origin Host override, so CF passes the client's Host to the
+# tunnel, which routes by hostname (app.vent.dog->webapp, id.vent.dog->keycloak). Stays within
+# Cloudflare's 4-origin account cap (2 tunnels, 1 pool).
+cf_lb_enabled: true
+cf_lb_hostnames:                         # each becomes a Load Balancer pointing at the shared pool
+  - "app.vent.dog"
+  - "id.vent.dog"
+cf_lb_pool_name: "keygrip"
+cf_lb_monitor_host: "app.vent.dog"       # the monitor checks the app's /readyz (DB + local Keycloak)
+cf_lb_monitor_path: "/readyz"            # a box with a dead DB or Keycloak is drained from BOTH LBs.
+cf_tunnel2_name: "vent-keygrip2"         # the 2nd app node's tunnel
+cf_lb_origins:                           # tunnel addresses resolved at runtime from these names
+  - { name: "vent-keygrip", tunnel: "vent-keygrip" }
+  - { name: "vent-keygrip2", tunnel: "vent-keygrip2" }
+# Ingress for the 2nd tunnel — both id.vent.dog (Keycloak HA) and app.vent.dog route to vent.dog2's
+# LOCAL services. Each is a CF Load Balancer origin across both tunnels.
+cf_ingress2:
+  - { hostname: "id.vent.dog", service: "http://host.docker.internal:8080" }   # host-networked Keycloak
+  - { hostname: "app.vent.dog", path: "^/metrics", service: "http_status:404" }
+  - { hostname: "app.vent.dog", service: "http://webapp:8000" }
+
+# --- Cloudflare Access (Zero Trust) ---
+# Token now carries the "Access: Apps and Policies — Edit" scope, so this is ON.
+#   ./ac ansible-playbook playbooks/cloudflare.yml
+# NOTE: the role only *creates* missing apps/policies — it does not reconcile an existing app's
+# emails (PUT-by-id). To change an allow-list, update via the API/dashboard AND edit here to match.
+cf_manage_access: true
+
+cf_access_apps:
+  # Marketing site (apex) — GATED until launch; NOT public yet. The whole apex + the raw Pages
+  # URL sit behind Access (allow-list below). Relax/remove when the site goes public (ADR 0012).
+  - name: "keygrip marketing (gated — not public yet)"
+    domain: "vent.dog"
+    type: "self_hosted"
+    session_duration: "24h"
+    policy_name: "Allowed"
+    include:
+      - email: { email: "jeff.aigner@gmail.com" }
+      - email: { email: "brad@keygrip.ai" }
+      - email: { email: "zach@keygrip.ai" }
+  - name: "keygrip marketing pages.dev (gated)"
+    domain: "keygrip-marketing.pages.dev"
+    type: "self_hosted"
+    session_duration: "24h"
+    policy_name: "Allowed"
+    include:
+      - email: { email: "jeff.aigner@gmail.com" }
+      - email: { email: "brad@keygrip.ai" }
+      - email: { email: "zach@keygrip.ai" }
+  # Admin portal (launchpad of tool links) — staff-only, gated end to end.
+  - name: "keygrip admin portal (portal.vent.dog)"
+    domain: "portal.vent.dog"
+    type: "self_hosted"
+    session_duration: "24h"
+    policy_name: "Allowed"
+    include:
+      - email: { email: "jeff.aigner@gmail.com" }
+      - email: { email: "brad@keygrip.ai" }
+      - email: { email: "zach@keygrip.ai" }
+  - name: "keygrip admin portal (keygrip-portal.pages.dev)"
+    domain: "keygrip-portal.pages.dev"
+    type: "self_hosted"
+    session_duration: "24h"
+    policy_name: "Allowed"
+    include:
+      - email: { email: "jeff.aigner@gmail.com" }
+      - email: { email: "brad@keygrip.ai" }
+      - email: { email: "zach@keygrip.ai" }
+  # Keycloak admin console — the existing dashboard-created Access app, codified 1:1.
+  - name: "id"
+    domain: "id.vent.dog/admin"
+    type: "self_hosted"
+    session_duration: "24h"
+    policy_name: "Admins"
+    # Cloudflare Access "include" rules — verbatim API shape.
+    include:
+      - email: { email: "jeff.aigner@gmail.com" }
+      - email: { email: "brad@keygrip.ai" }
+      - email: { email: "zach@keygrip.ai" }
+  # Django admin: PUBLIC on app.vent.dog (same-origin; staff authenticate via Keycloak SSO) since
+  # 2026-06-12 — no Access app, no tunnel 404. ADR 0002 is enforced in the app instead: the
+  # *password* (break-glass) login form is host-gated to the Tailscale Serve host (:8447) via
+  # DJANGO_BREAK_GLASS_LOGIN_HOSTS (web.views.admin_login_gate). History: Access app retired
+  # 2026-06-08 (deleted out-of-band; this role only creates, never deletes), tailnet-only
+  # 2026-06-08 → 2026-06-12 (caused host/cookie churn for staff — the admin lived on a
+  # different origin than the app).

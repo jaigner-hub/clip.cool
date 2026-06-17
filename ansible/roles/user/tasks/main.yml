@@ -1,0 +1,36 @@
+---
+- name: Create admin users (sudo group)
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: sudo
+    append: true
+    shell: /bin/bash
+    create_home: true
+  loop: "{{ admin_users }}"
+
+- name: Ensure ~/.ssh exists
+  ansible.builtin.file:
+    path: "/home/{{ item }}/.ssh"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0700"
+  loop: "{{ admin_users }}"
+
+- name: Seed authorized_keys from root (same key you already use)
+  ansible.builtin.copy:
+    src: /root/.ssh/authorized_keys
+    dest: "/home/{{ item }}/.ssh/authorized_keys"
+    remote_src: true
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0600"
+  loop: "{{ admin_users }}"
+
+- name: Passwordless sudo (validated before install)
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ item }}"
+    content: "{{ item }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+    validate: "visudo -cf %s"
+  loop: "{{ admin_users }}"
