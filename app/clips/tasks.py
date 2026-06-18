@@ -38,6 +38,12 @@ def transcode_asset(asset_id: str) -> None:
     services.transcode_asset(asset_id)
 
 
+@app.task(queue="transcode")
+@_db_fresh
+def burn_caption_asset(asset_id: str) -> None:
+    services.burn_caption_asset(asset_id)
+
+
 @app.task(queue="index")
 @_db_fresh
 def index_asset(asset_id: str) -> None:

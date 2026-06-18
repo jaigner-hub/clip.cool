@@ -33,6 +33,9 @@ postgres_exporter_image: "quay.io/prometheuscommunity/postgres-exporter:v0.16.0"
 # NOTE: this is N processes on ONE box (node-level). True cross-box/datacenter HA coordination
 # must be re-tested once a 2nd-region origin exists (funding-gated) — see docs/foundation-backlog.md.
 worker_replicas: 4
+# CPU cap for the dedicated heavy-encode worker (worker-transcode) so AV1/burn ffmpeg can't peg the
+# shared box (web + DB + Keycloak + chat live here too). A string like "2" / "1.5".
+transcode_worker_cpus: "2"
 
 # --- Distributed tracing (infra-gap-analysis.md #7, ADR 0015) ---
 # OTLP/gRPC endpoint the app exports spans to: Alloy on the shared `edge` net, which forwards to

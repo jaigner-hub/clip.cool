@@ -81,11 +81,12 @@ class Rendition(models.Model):
         VP9 = "vp9", "VP9"
         H264 = "h264", "H.264"
         GIF = "gif", "GIF (chat autoplay)"   # optimized loop for Discord/Slack embeds
+        CAPTIONED = "captioned", "Captioned (caption burned in)"   # downloadable; text baked into pixels
         POSTER = "poster", "Poster"
         SPRITE = "sprite", "Scrub sprite"
 
     asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name="renditions")
-    kind = models.CharField(max_length=8, choices=Kind.choices)
+    kind = models.CharField(max_length=12, choices=Kind.choices)
     r2_key = models.CharField(max_length=512)
     mime = models.CharField(max_length=128, blank=True)
     width = models.PositiveIntegerField(null=True, blank=True)

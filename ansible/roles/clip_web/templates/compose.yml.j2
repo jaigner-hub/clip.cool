@@ -91,16 +91,17 @@ services:
       - "127.0.0.1:8000:8000"
     networks: [appnet, edge]   # edge -> reachable by cloudflared as webapp:8000
 
-  # Procrastinate worker (ADR 0008): one process, all four logical queues. Same image as webapp,
-  # different entrypoint. The DjangoConnector reuses DATABASES["default"] for both the job queue and
-  # LISTEN/NOTIFY, so it MUST be a session connection — it goes to HAProxy (the leader), NOT through
-  # the transaction-mode PgBouncer (the ADR 0008 / ADR 0016 watch-out).
+  # Procrastinate worker (ADR 0008): the LIGHT queues (poster/OCR/index/vision). Same image as
+  # webapp, different entrypoint. The DjangoConnector reuses DATABASES["default"] for both the job
+  # queue and LISTEN/NOTIFY, so it MUST be a session connection — it goes to HAProxy (the leader),
+  # NOT through the transaction-mode PgBouncer (the ADR 0008 / ADR 0016 watch-out).
+  # `transcode` is split out (worker-transcode below) so a long ffmpeg encode can't starve these.
   worker:
     build:
       context: ./src
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: ["python", "manage.py", "procrastinate", "worker", "--queues", "default,index,thumbs,transcode"]
+    command: ["python", "manage.py", "procrastinate", "worker", "--queues", "default,index,thumbs"]
     environment:
       <<: *app_env
       OTEL_SERVICE_NAME: clip-worker   # trace service.name for the queue tier (ADR 0015)
@@ -114,6 +115,29 @@ services:
     deploy:
       replicas: {{ worker_replicas }}
     networks: [appnet, edge]   # edge -> reach keycloak:8080 for admin-API tasks
+
+  # Dedicated HEAVY-encode tier: only the `transcode` queue (ffmpeg AV1/VP9/H.264 + caption burn-in).
+  # --concurrency 1 → one encode at a time; a CPU cap keeps the box responsive (web/DB/Keycloak share
+  # it). Single replica — encodes are serialized here so they never pile onto the light worker.
+  worker-transcode:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "manage.py", "procrastinate", "worker", "--queues", "transcode", "--concurrency", "1"]
+    environment:
+      <<: *app_env
+      OTEL_SERVICE_NAME: clip-worker-transcode
+      DB_HOST: host.docker.internal
+      DB_PORT: "5000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "{{ transcode_worker_cpus }}"
+    networks: [appnet, edge]
 
   pg-exporter-app:
     image: {{ postgres_exporter_image }}

@@ -52,6 +52,23 @@ def _run(args, timeout=600):
     subprocess.run(args, check=True, capture_output=True, timeout=timeout)
 
 
+def burn_caption(src_path, overlay_path, workdir, video=True):
+    """Flatten a transparent caption PNG onto the source → a captioned file with the text baked into
+    the pixels (mp4 for video, png for image). The overlay PNG is exported at the clip's native size,
+    same as the H.264 rendition / original, so a plain overlay=0:0 aligns. Video output strips audio
+    (matches the renditions) and is +faststart for streaming. Returns the output path."""
+    out = os.path.join(workdir, "captioned." + ("mp4" if video else "png"))
+    args = ["ffmpeg", "-y", "-i", src_path, "-i", overlay_path,
+            "-filter_complex", "[0:v][1:v]overlay=0:0"]
+    if video:
+        args += ["-c:v", "libx264", "-crf", "23", "-preset", "medium", "-pix_fmt", "yuv420p",
+                 "-movflags", "+faststart", "-an", out]
+    else:
+        args += ["-frames:v", "1", out]
+    _run(args)
+    return out
+
+
 def transcode(src_path, workdir):
     """Produce renditions + poster from src_path into workdir. Returns
     {'renditions': [{kind, path, mime}], 'poster': path|None, 'meta': <probe>}.

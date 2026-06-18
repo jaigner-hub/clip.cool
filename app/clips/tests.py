@@ -296,8 +296,9 @@ class CaptionOverlayTests(TestCase):
             width=640, height=360, status=Asset.Status.READY,
         )
 
+    @patch("clips.tasks.burn_caption_asset")
     @patch("clips.services.search")
-    def test_save_caption_stores_layers_and_indexes_typed_text(self, mock_search):
+    def test_save_caption_stores_layers_and_indexes_typed_text(self, mock_search, mock_burn):
         # WHY: we know the exact typed caption — store the editable layers + PNG key, and index the
         # text directly (no OCR of the rendered overlay).
         layers = [
@@ -523,3 +524,58 @@ class DeleteTests(TestCase):
         self.client.force_login(self.other)
         self.assertEqual(self.client.post(reverse("clips_delete", args=[a.id])).status_code, 404)  # not owner
         self.assertTrue(Asset.objects.filter(pk=a.id).exists())
+
+
+class CaptionBurnTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("burn@example.com", "burn@example.com")
+
+    @patch("clips.services.search")
+    @patch("clips.tasks.burn_caption_asset")
+    def test_save_caption_enqueues_burn(self, mock_burn, mock_search):
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY)
+        services.save_caption(self.user, a.id, text_key="texts/x.png", layers=[{"text": "TOP"}])
+        mock_burn.defer.assert_called_once_with(asset_id=str(a.id))
+
+    @patch("clips.services.search")
+    @patch("clips.services.storage")
+    @patch("clips.tasks.burn_caption_asset")
+    def test_clearing_caption_drops_burned_rendition(self, mock_burn, mock_storage, mock_search):
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, text_layer_key="texts/x.png")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.CAPTIONED, r2_key="r/captioned.mp4", mime="video/mp4")
+        services.save_caption(self.user, a.id, text_key="", layers=[])   # caption removed
+        mock_storage.delete.assert_called_once_with("r/captioned.mp4")
+        self.assertFalse(Rendition.objects.filter(asset=a, kind=Rendition.Kind.CAPTIONED).exists())
+        mock_burn.defer.assert_not_called()
+
+    @patch("clips.services.storage.presign_get", side_effect=lambda k, **kw: "https://r2/" + k)
+    def test_download_prefers_captioned(self, mock_presign):
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="originals/x.mp4", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, title="Cap")
+        # no captioned yet → original
+        services.download_url(a)
+        self.assertEqual(mock_presign.call_args.args[0], "originals/x.mp4")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.CAPTIONED, r2_key="renditions/x/captioned.mp4", mime="video/mp4")
+        services.download_url(a)
+        self.assertEqual(mock_presign.call_args.args[0], "renditions/x/captioned.mp4")
+        self.assertEqual(mock_presign.call_args.kwargs["filename"], "Cap.mp4")
+
+    @patch("clips.transcode.burn_caption", return_value="/tmp/captioned.mp4")
+    @patch("clips.services.storage")
+    def test_burn_caption_asset_makes_rendition(self, mock_storage, mock_burn):
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="originals/x.mp4", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, text_layer_key="texts/x.png")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="renditions/x/h264.mp4", mime="video/mp4")
+        mock_storage.download_bytes.return_value = b"x"
+        from unittest.mock import mock_open
+        with patch("builtins.open", mock_open(read_data=b"captioned")):
+            services.burn_caption_asset(str(a.id))
+        # burned onto the H.264 rendition, uploaded as the captioned rendition
+        up = mock_storage.upload_bytes.call_args
+        self.assertTrue(up.args[0].endswith("captioned.mp4"))
+        self.assertTrue(Rendition.objects.filter(asset=a, kind=Rendition.Kind.CAPTIONED).exists())
