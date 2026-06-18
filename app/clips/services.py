@@ -174,14 +174,40 @@ def _make_poster(asset, im, size=(640, 640)):
 
 
 def _ocr(im):
-    """Burned-in text via Tesseract (needs the `tesseract-ocr` system pkg — see Dockerfile)."""
+    """Burned-in text via Tesseract (needs the `tesseract-ocr` system pkg — see Dockerfile).
+
+    Animated GIFs caption on *some* frame, not necessarily the first — so for multi-frame images we
+    sample evenly across the animation, OCR each composited frame, and union the distinct results.
+    OCR'ing only frame 0 silently misses captions that appear later (the Isengard-gif bug)."""
     import pytesseract
+    from PIL import ImageSequence
+
+    def _read(frame):
+        try:
+            return " ".join(pytesseract.image_to_string(frame).split())
+        except Exception:
+            logger.warning("clips: OCR failed on a frame", exc_info=True)
+            return ""
 
     try:
-        return " ".join(pytesseract.image_to_string(im).split())
+        n_frames = int(getattr(im, "n_frames", 1) or 1)
     except Exception:
-        logger.warning("clips: OCR failed", exc_info=True)
-        return ""
+        n_frames = 1
+    if n_frames <= 1:
+        return _read(im)
+
+    # Sample up to MAX frames evenly (Iterator yields properly composited frames, unlike raw seek).
+    MAX = 8
+    stride = max(1, n_frames // MAX)
+    texts, seen = [], set()
+    for i, frame in enumerate(ImageSequence.Iterator(im)):
+        if i % stride:
+            continue
+        t = _read(frame.convert("RGB"))
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            texts.append(t)
+    return "  ".join(texts)
 
 
 def index_asset(asset_id):
