@@ -225,3 +225,24 @@ class TemplateBuilderTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r["Content-Type"], "image/jpeg")
         self.assertEqual(r.content, b"\x89PNGfake")
+
+
+class VisibilityTests(TestCase):
+    def test_superuser_filter_is_none(self):
+        from clips import search
+        self.assertIsNone(search._filter_for(None))
+
+    def test_user_filter_is_public_or_own(self):
+        # WHY: a regular viewer sees the shared public catalog plus their own (incl. private) clips.
+        from clips import search
+        self.assertEqual(search._filter_for(7), "is_public:=true || owner_id:=7")
+
+    @patch("clips.services.search")
+    def test_update_can_make_private(self, mock_search):
+        user = User.objects.create_user("v@example.com", "v@example.com")
+        a = Asset.objects.create(owner=user, original_key="k", status=Asset.Status.READY)
+        self.assertTrue(a.is_public)  # default public
+        services.update_asset(user, str(a.id), is_public=False)
+        a.refresh_from_db()
+        self.assertFalse(a.is_public)
+        mock_search.upsert.assert_called_once()

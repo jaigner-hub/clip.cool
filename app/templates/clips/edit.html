@@ -23,6 +23,9 @@
       <textarea id="description" name="description" rows="4">{{ asset.description }}</textarea>
     </div>
     <div class="kg-field">
+      <label class="clip-check"><input type="checkbox" name="is_public" {% if asset.is_public %}checked{% endif %}> Public (anyone can find this in search)</label>
+    </div>
+    <div class="kg-field">
       <label for="tag-input">Tags</label>
       <div class="tag-editor" id="tag-editor">
         {% for t in asset.tags %}<span class="tag-chip" data-tag="{{ t }}">{{ t }}<button type="button" class="tag-x" aria-label="remove tag">×</button></span>{% endfor %}

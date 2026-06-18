@@ -24,6 +24,7 @@ _SCHEMA = {
         {"name": "tags", "type": "string[]", "facet": True},
         {"name": "mime", "type": "string", "facet": True, "optional": True},
         {"name": "owner_id", "type": "int64", "facet": True},
+        {"name": "is_public", "type": "bool", "facet": True},
         {"name": "created_at", "type": "int64"},
     ],
     "default_sorting_field": "created_at",
@@ -83,6 +84,14 @@ def remove(asset_id):
         pass
 
 
+def _filter_for(owner_id):
+    """Visibility filter. owner_id None ⇒ no filter (superuser sees everything). Otherwise the
+    viewer sees the shared public catalog plus their own (incl. private) clips."""
+    if owner_id is None:
+        return None
+    return "is_public:=true || owner_id:=%d" % int(owner_id)
+
+
 def query(q, *, owner_id=None, limit=40):
     """Return matching asset-id strings, best match first (typo-tolerant). Empty q ⇒ newest first."""
     ensure_collection()
@@ -92,8 +101,9 @@ def query(q, *, owner_id=None, limit=40):
         "per_page": min(max(limit, 1), 250),
         "sort_by": "_text_match:desc,created_at:desc",
     }
-    if owner_id is not None:
-        params["filter_by"] = f"owner_id:={int(owner_id)}"
+    f = _filter_for(owner_id)
+    if f:
+        params["filter_by"] = f
     res = _client().collections[COLLECTION].documents.search(params)
     return [hit["document"]["id"] for hit in res.get("hits", [])]
 
@@ -107,5 +117,6 @@ def _doc(asset):
         "tags": list(asset.tags or []),
         "mime": asset.mime or "",
         "owner_id": int(asset.owner_id),
+        "is_public": bool(asset.is_public),
         "created_at": int(asset.created_at.timestamp()) if asset.created_at else 0,
     }

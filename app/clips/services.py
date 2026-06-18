@@ -277,13 +277,16 @@ def get_asset_for(user, asset_id):
     return qs.filter(pk=asset_id).first()
 
 
-def update_asset(user, asset_id, *, title=None, description=None, tags=None):
+def update_asset(user, asset_id, *, title=None, description=None, tags=None, is_public=None):
     """Apply a user's manual edits and re-index. Returns the asset, or None if not found/allowed.
     Fields left None are unchanged; auto-describe only runs at ingest, so edits aren't clobbered."""
     asset = get_asset_for(user, asset_id)
     if asset is None:
         return None
     fields = ["updated_at"]
+    if is_public is not None:
+        asset.is_public = bool(is_public)
+        fields.append("is_public")
     if title is not None:
         asset.title = title.strip()[:255]
         fields.append("title")
@@ -339,6 +342,7 @@ def serialize(asset):
         "width": asset.width,
         "height": asset.height,
         "tags": list(asset.tags or []),
+        "is_public": asset.is_public,
         "url": storage.public_url(asset.original_key),
         "poster_url": storage.public_url(asset.poster_key or asset.original_key),
         "created_at": asset.created_at,

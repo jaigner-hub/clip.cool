@@ -47,6 +47,7 @@ def asset_edit(request, asset_id):
             title=request.POST.get("title", ""),
             description=request.POST.get("description", ""),
             tags=tags,
+            is_public="is_public" in request.POST,   # checkbox: present ⇒ public
         )
         return redirect("clips_asset", asset_id=asset_id)
     return render(request, "clips/edit.html", {

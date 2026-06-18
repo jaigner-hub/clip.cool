@@ -26,6 +26,7 @@
     {% if a.description %}<p class="kg-sub">{{ a.description }}</p>{% endif %}
 
     <div class="clip-meta">
+      {% if not a.is_public %}<span class="clip-status">private</span>{% endif %}
       {% for t in a.tags %}<span class="clip-tag">{{ t }}</span>{% endfor %}
     </div>
 

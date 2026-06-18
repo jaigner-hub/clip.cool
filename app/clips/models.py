@@ -44,6 +44,9 @@ class Asset(models.Model):
     tags = models.JSONField(default=list, blank=True)
 
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    # Public clips are searchable by everyone (the shared catalog); private = owner-only.
+    # Default public — clip.cool is a shared meme host.
+    is_public = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
