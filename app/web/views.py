@@ -41,9 +41,8 @@ def admin_login_gate(request):
     return redirect_to_login(next_url, settings.LOGIN_URL, REDIRECT_FIELD_NAME)
 
 
-@login_required
 def home(request):
-    """Root: send users to the clip search surface (the discovery front door)."""
+    """Root: send everyone (logged in or not) to the public clip search surface."""
     return redirect("clips_search")
 
 

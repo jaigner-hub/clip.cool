@@ -7,7 +7,8 @@
 {% block title %}{{ a.title|default:'Clip' }} · clip.cool{% endblock %}
 {% block app_content %}
 <div class="kg-page-head">
-  <a class="kg-acct-link" href="{% url 'clips_library' %}">← My clips</a>
+  {% if can_edit %}<a class="kg-acct-link" href="{% url 'clips_library' %}">← My clips</a>
+  {% else %}<a class="kg-acct-link" href="{% url 'clips_search' %}">← Search</a>{% endif %}
 </div>
 
 <div class="clip-detail">
@@ -40,6 +41,7 @@
       {% for t in a.tags %}<span class="clip-tag">{{ t }}</span>{% endfor %}
     </div>
 
+    {% if can_edit %}
     <div class="clip-actions">
       <a class="kg-btn kg-btn-sm" href="{% url 'clips_edit' asset.id %}">Edit</a>
       {% if a.media_type == 'video' %}<a class="kg-btn kg-btn-sm" href="{% url 'clips_caption' asset.id %}">{% if asset.caption_layers %}Edit captions{% else %}Add captions{% endif %}</a>{% endif %}
@@ -49,6 +51,7 @@
       </form>
       <a class="kg-acct-link" href="{{ a.url }}" target="_blank" rel="noopener">Original file ↗</a>
     </div>
+    {% endif %}
 
     {% if a.is_public %}
     <div class="clip-share">

@@ -24,17 +24,21 @@ def library(request):
     return render(request, "clips/library.html", {"active_page": "clips_library", "assets": assets})
 
 
-@login_required
 def asset_detail(request, asset_id):
-    """One clip + its (possibly still-generating) metadata. The template auto-refreshes while the
-    status is pending, so this is where the upload flow lands to watch describe/OCR complete."""
-    asset = services.get_asset_for(request.user, asset_id)
+    """One clip + its metadata. Public (ready) clips are viewable by anyone (logged out included);
+    private/unready clips are owner/superuser only. Owner-only controls render when can_edit."""
+    asset = services.get_public_asset(asset_id)   # public + ready ⇒ anyone
+    if asset is None and request.user.is_authenticated:
+        asset = services.get_asset_for(request.user, asset_id)   # else owner/superuser (incl. private/unready)
     if asset is None:
         raise Http404("Clip not found.")
+    u = request.user
+    can_edit = u.is_authenticated and (u.is_superuser or asset.owner_id == u.id)
     a = services.serialize(asset)
     sources = services.video_sources(asset) if asset.media_type == Asset.MediaType.VIDEO else []
     return render(request, "clips/detail.html", {
         "active_page": "clips_library", "asset": asset, "a": a, "sources": sources,
+        "can_edit": can_edit,
     })
 
 
@@ -208,9 +212,9 @@ def finalize(request):
     return JsonResponse(services.serialize(asset))
 
 
-@login_required
 def search_page(request):
-    """Server-rendered search: GET ?q= → Typesense → hydrated results (title, OCR text, tags)."""
+    """Public server-rendered search: GET ?q= → Typesense → hydrated results. Logged out ⇒ public
+    clips only; a signed-in user also sees their own."""
     q = (request.GET.get("q") or "").strip()
     results = [services.serialize(a) for a in services.search_assets(request.user, q)] if q else []
     return render(request, "clips/search.html", {"active_page": "clips", "q": q, "results": results})

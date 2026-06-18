@@ -84,15 +84,19 @@ def remove(asset_id):
         pass
 
 
-def _filter_for(owner_id):
-    """Visibility filter. owner_id None ⇒ no filter (superuser sees everything). Otherwise the
-    viewer sees the shared public catalog plus their own (incl. private) clips."""
+def _filter_for(owner_id, public_only=False):
+    """Visibility filter:
+    - public_only (logged-out browsing) ⇒ only public clips;
+    - owner_id None (superuser) ⇒ no filter (everything);
+    - else ⇒ the shared public catalog plus the viewer's own (incl. private) clips."""
+    if public_only:
+        return "is_public:=true"
     if owner_id is None:
         return None
     return "is_public:=true || owner_id:=%d" % int(owner_id)
 
 
-def query(q, *, owner_id=None, limit=40):
+def query(q, *, owner_id=None, public_only=False, limit=40):
     """Return matching asset-id strings, best match first (typo-tolerant). Empty q ⇒ newest first."""
     ensure_collection()
     params = {
@@ -101,7 +105,7 @@ def query(q, *, owner_id=None, limit=40):
         "per_page": min(max(limit, 1), 250),
         "sort_by": "_text_match:desc,created_at:desc",
     }
-    f = _filter_for(owner_id)
+    f = _filter_for(owner_id, public_only)
     if f:
         params["filter_by"] = f
     res = _client().collections[COLLECTION].documents.search(params)

@@ -344,10 +344,13 @@ def reindex_all():
 
 
 def search_assets(user, q, *, limit=40):
-    """Search a user's assets by title/OCR text/tags. Superuser sees everything (superuser-first,
-    CLAUDE.md). Returns Asset rows in Typesense relevance order."""
-    owner_id = None if getattr(user, "is_superuser", False) else user.pk
-    ids = search.query(q, owner_id=owner_id, limit=limit)
+    """Search by title/description/OCR text/tags. Logged-out ⇒ public catalog only; a user sees
+    public + their own; superuser sees everything. Returns Asset rows in Typesense relevance order."""
+    if user is not None and getattr(user, "is_authenticated", False):
+        owner_id = None if user.is_superuser else user.pk
+        ids = search.query(q, owner_id=owner_id, limit=limit)
+    else:
+        ids = search.query(q, public_only=True, limit=limit)
     by_id = {str(a.id): a for a in Asset.objects.filter(pk__in=ids)}
     return [by_id[i] for i in ids if i in by_id]  # preserve relevance order
 

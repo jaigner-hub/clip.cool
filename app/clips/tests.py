@@ -386,3 +386,43 @@ class PublicGifLinkTests(TestCase):
         a = Asset.objects.create(owner=u, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
                                  status=Asset.Status.READY, is_public=True)
         self.assertEqual(self.client.get(reverse("clip_public_gif", args=[a.id])).status_code, 404)
+
+
+class PublicBrowseTests(TestCase):
+    def _img(self, owner, **kw):
+        kw.setdefault("media_type", Asset.MediaType.IMAGE)
+        kw.setdefault("status", Asset.Status.READY)
+        return Asset.objects.create(owner=owner, original_key="o.png", **kw)
+
+    def test_filter_public_only(self):
+        from clips import search
+        self.assertEqual(search._filter_for(None, public_only=True), "is_public:=true")
+
+    @patch("clips.services.search")
+    def test_anonymous_search_is_public_only(self, mock_search):
+        from django.contrib.auth.models import AnonymousUser
+        mock_search.query.return_value = []
+        services.search_assets(AnonymousUser(), "x")
+        self.assertTrue(mock_search.query.call_args.kwargs.get("public_only"))
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_public_detail_visible_logged_out_without_edit_controls(self, mock_url):
+        u = User.objects.create_user("p@example.com", "p@example.com")
+        a = self._img(u, is_public=True, title="Pub")
+        r = self.client.get(reverse("clips_asset", args=[a.id]))   # no login
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Pub")
+        self.assertNotContains(r, "Regenerate AI labels")          # owner-only, hidden
+
+    def test_private_detail_404_logged_out(self):
+        u = User.objects.create_user("p2@example.com", "p2@example.com")
+        a = self._img(u, is_public=False)
+        self.assertEqual(self.client.get(reverse("clips_asset", args=[a.id])).status_code, 404)
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_owner_sees_edit_controls(self, mock_url):
+        u = User.objects.create_user("p3@example.com", "p3@example.com")
+        a = self._img(u, is_public=True)
+        self.client.force_login(u)
+        r = self.client.get(reverse("clips_asset", args=[a.id]))
+        self.assertContains(r, "Regenerate AI labels")            # owner sees controls
