@@ -184,6 +184,19 @@
 .clip-detail-media img,
 .clip-detail-media video { width: 100%; height: auto; display: block; }
 
+/* Public share page. */
+.pub { max-width: 720px; margin: 0 auto; padding: 24px 16px; text-align: center; }
+.pub-brand { display: inline-block; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: #1f2937; text-decoration: none; margin-bottom: 16px; }
+.pub-media { display: inline-block; max-width: 100%; border-radius: 10px; overflow: hidden; background: #0b1220; }
+.pub-media img, .pub-media video { max-width: 100%; height: auto; display: block; }
+.pub-title { font-size: 20px; margin: 16px 0 12px; color: #1f2937; }
+
+/* Share link row on the detail page. */
+.clip-share { margin-top: 16px; }
+.clip-share > label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.clip-share-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.clip-share-row input { flex: 1; min-width: 180px; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; background: #f8fafc; }
+
 /* Player: caption PNG overlaid over the clip (same scale → WYSIWYG). */
 .clip-media-wrap { position: relative; line-height: 0; }
 .clip-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

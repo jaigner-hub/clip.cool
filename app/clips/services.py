@@ -343,6 +343,11 @@ def list_assets(user, *, limit=40):
     return list(qs[:limit])
 
 
+def get_public_asset(asset_id):
+    """A ready, public asset for the no-login share page. None if private/missing/not ready."""
+    return Asset.objects.filter(pk=asset_id, is_public=True, status=Asset.Status.READY).first()
+
+
 def get_asset_for(user, asset_id):
     """One asset the user may see/edit (owner, or any for a superuser). None if not found/allowed."""
     qs = Asset.objects.all() if getattr(user, "is_superuser", False) else Asset.objects.filter(owner=user)

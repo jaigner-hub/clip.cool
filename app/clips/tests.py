@@ -324,3 +324,26 @@ class CaptionOverlayTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, 'data-mode="overlay"')
         self.assertContains(r, "meme-canvas")
+
+
+class PublicSharePageTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("share@example.com", "share@example.com")
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_public_clip_visible_without_login(self, mock_url):
+        # WHY: the share link must work for logged-out viewers (chat/social unfurls).
+        a = Asset.objects.create(owner=self.user, original_key="o.png", media_type=Asset.MediaType.IMAGE,
+                                 status=Asset.Status.READY, is_public=True, title="Shared")
+        r = self.client.get(reverse("clip_public", args=[a.id]))   # no login
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'property="og:title"')   # OG meta for unfurls
+        self.assertContains(r, "Shared")
+
+    def test_private_clip_is_404(self):
+        a = Asset.objects.create(owner=self.user, original_key="o.png", status=Asset.Status.READY, is_public=False)
+        self.assertEqual(self.client.get(reverse("clip_public", args=[a.id])).status_code, 404)
+
+    def test_unready_clip_is_404(self):
+        a = Asset.objects.create(owner=self.user, original_key="o.png", status=Asset.Status.TRANSCODING, is_public=True)
+        self.assertEqual(self.client.get(reverse("clip_public", args=[a.id])).status_code, 404)

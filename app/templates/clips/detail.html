@@ -47,8 +47,22 @@
         {% csrf_token %}
         <button type="submit" class="kg-btn kg-btn-sm">Regenerate AI labels</button>
       </form>
-      <a class="kg-acct-link" href="{{ a.url }}" target="_blank" rel="noopener">Open original ↗</a>
+      <a class="kg-acct-link" href="{{ a.url }}" target="_blank" rel="noopener">Original file ↗</a>
     </div>
+
+    {% if a.is_public %}
+    <div class="clip-share">
+      <label for="share-url">Share link</label>
+      <div class="clip-share-row">
+        <input type="text" id="share-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public' asset.id %}">
+        <button type="button" class="kg-btn kg-btn-sm" data-copy="#share-url">Copy</button>
+        <a class="kg-btn kg-btn-sm" href="{% url 'clip_public' asset.id %}" target="_blank" rel="noopener">Open ↗</a>
+      </div>
+      <p class="kg-muted">Anyone with this link can view it — no login. Pasting it in chat/social shows a preview.</p>
+    </div>
+    {% else %}
+    <p class="kg-muted clip-share">Private clip. <a href="{% url 'clips_edit' asset.id %}">Make it public</a> to get a share link.</p>
+    {% endif %}
 
     {% if asset.ocr_text %}
     <details class="clip-ocr">
@@ -58,4 +72,5 @@
     {% endif %}
   </div>
 </div>
+<script src="{% static 'clips/share.js' %}" defer></script>
 {% endblock %}

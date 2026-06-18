@@ -67,6 +67,21 @@ def asset_regenerate(request, asset_id):
     return redirect("clips_asset", asset_id=asset_id)
 
 
+def public_clip(request, asset_id):
+    """Public, no-login share page for a public clip — plays the looping video, carries Open
+    Graph/Twitter meta so the link unfurls (and autoplays) in chat/social. Private/missing → 404."""
+    asset = services.get_public_asset(asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    a = services.serialize(asset)
+    sources = services.video_sources(asset) if asset.media_type == Asset.MediaType.VIDEO else []
+    mp4_url = next((s["url"] for s in sources if s["kind"] == "h264"), a.get("url"))
+    return render(request, "clips/public.html", {
+        "a": a, "asset": asset, "sources": sources, "mp4_url": mp4_url,
+        "page_url": request.build_absolute_uri(),
+    })
+
+
 @login_required
 def caption_builder(request, asset_id):
     """Caption an existing clip (overlay mode): add text over the video/image; saves editable

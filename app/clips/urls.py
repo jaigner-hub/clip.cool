@@ -3,6 +3,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("c/<uuid:asset_id>/", views.public_clip, name="clip_public"),   # short public share URL
     path("clips/", views.library, name="clips_library"),
     path("clips/upload/", views.upload_page, name="clips_upload"),
     path("clips/upload/presign", views.presign, name="clips_presign"),
