@@ -285,3 +285,42 @@ class VideoIngestTests(TestCase):
         Rendition.objects.create(asset=a, kind=Rendition.Kind.POSTER, r2_key="r/p", mime="image/webp")
         kinds = [s["kind"] for s in services.video_sources(a)]
         self.assertEqual(kinds, ["av1", "vp9", "h264"])   # ordered, poster excluded
+
+
+class CaptionOverlayTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("cap@example.com", "cap@example.com")
+        self.client.force_login(self.user)
+        self.asset = Asset.objects.create(
+            owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
+            width=640, height=360, status=Asset.Status.READY,
+        )
+
+    @patch("clips.services.search")
+    def test_save_caption_stores_layers_and_indexes_typed_text(self, mock_search):
+        # WHY: we know the exact typed caption — store the editable layers + PNG key, and index the
+        # text directly (no OCR of the rendered overlay).
+        layers = [
+            {"text": "top", "cx": 0.5, "cy": 0.1, "w": 0.8, "size": 0.1},
+            {"text": "bottom", "cx": 0.5, "cy": 0.9, "w": 0.8, "size": 0.1},
+        ]
+        a = services.save_caption(self.user, str(self.asset.id), text_key="captions/x.png", layers=layers)
+        self.assertIsNotNone(a)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.text_layer_key, "captions/x.png")
+        self.assertEqual(self.asset.caption_layers, layers)
+        self.assertEqual(self.asset.ocr_text, "top bottom")
+        mock_search.upsert.assert_called_once()
+
+    def test_other_user_cannot_caption(self):
+        other = User.objects.create_user("o2@example.com", "o2@example.com")
+        self.assertIsNone(services.save_caption(other, str(self.asset.id), text_key="x", layers=[]))
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_caption_page_renders_overlay_mode(self, mock_url):
+        self.asset.caption_layers = [{"text": "hi", "cx": 0.5, "cy": 0.5, "w": 0.8, "size": 0.1}]
+        self.asset.save()
+        r = self.client.get(reverse("clips_caption", args=[self.asset.id]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'data-mode="overlay"')
+        self.assertContains(r, "meme-canvas")

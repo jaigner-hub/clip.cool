@@ -51,6 +51,12 @@ class Asset(models.Model):
     ocr_text = models.TextField(blank=True)
     tags = models.JSONField(default=list, blank=True)
 
+    # In-app captioning (docs/phase2-video-captioning.md): the editable text-box layout (source of
+    # truth, re-openable) + the rendered transparent PNG overlaid by the player / burned in on
+    # download. Empty list / blank ⇒ no caption overlay.
+    caption_layers = models.JSONField(default=list, blank=True)
+    text_layer_key = models.CharField(max_length=512, blank=True)
+
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     # Public clips are searchable by everyone (the shared catalog); private = owner-only.
     # Default public — clip.cool is a shared meme host.

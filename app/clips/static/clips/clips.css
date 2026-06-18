@@ -183,6 +183,15 @@
 }
 .clip-detail-media img,
 .clip-detail-media video { width: 100%; height: auto; display: block; }
+
+/* Player: caption PNG overlaid over the clip (same scale → WYSIWYG). */
+.clip-media-wrap { position: relative; line-height: 0; }
+.clip-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* Caption builder: transparent editing canvas over the live clip backdrop. */
+.caption-stage { position: relative; background: #0b1220; border: 1px solid #e3e7eb; border-radius: 10px; overflow: hidden; line-height: 0; }
+.caption-bg { width: 100%; height: auto; display: block; }
+.caption-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: move; }
 .clip-detail-info { min-width: 0; }
 
 .clip-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }

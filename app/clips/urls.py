@@ -14,4 +14,6 @@ urlpatterns = [
     path("clips/asset/<uuid:asset_id>/", views.asset_detail, name="clips_asset"),
     path("clips/asset/<uuid:asset_id>/edit/", views.asset_edit, name="clips_edit"),
     path("clips/asset/<uuid:asset_id>/regenerate/", views.asset_regenerate, name="clips_regenerate"),
+    path("clips/asset/<uuid:asset_id>/caption/", views.caption_builder, name="clips_caption"),
+    path("clips/asset/<uuid:asset_id>/caption/save", views.caption_save, name="clips_caption_save"),
 ]

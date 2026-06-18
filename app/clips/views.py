@@ -68,6 +68,34 @@ def asset_regenerate(request, asset_id):
 
 
 @login_required
+def caption_builder(request, asset_id):
+    """Caption an existing clip (overlay mode): add text over the video/image; saves editable
+    layers + a transparent text PNG the player overlays. Reopens prefilled for re-edit."""
+    asset = services.get_asset_for(request.user, asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    sources = services.video_sources(asset) if asset.media_type == Asset.MediaType.VIDEO else []
+    return render(request, "clips/caption.html", {
+        "active_page": "clips_library", "asset": asset, "a": services.serialize(asset),
+        "sources": sources, "layers_json": json.dumps(asset.caption_layers or []),
+    })
+
+
+@login_required
+@require_POST
+def caption_save(request, asset_id):
+    data = _json(request)
+    asset = services.save_caption(
+        request.user, asset_id,
+        text_key=(data.get("text_key") or "").strip(),
+        layers=data.get("layers") or [],
+    )
+    if asset is None:
+        raise Http404("Clip not found.")
+    return JsonResponse({"ok": True})
+
+
+@login_required
 def create_gallery(request):
     """Pick a template to caption (the in-app meme builder)."""
     return render(request, "clips/create.html", {

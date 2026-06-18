@@ -1,0 +1,53 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
+{% block title %}Caption · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <a class="kg-acct-link" href="{% url 'clips_asset' asset.id %}">← Back to clip</a>
+  <h1 class="kg-title">Add captions</h1>
+</div>
+
+<div class="clip-detail">
+  <div class="caption-stage">
+    {% if a.media_type == 'video' and sources %}
+    <video class="caption-bg" autoplay loop muted playsinline poster="{{ a.poster_url }}">
+      {% for s in sources %}<source src="{{ s.url }}" type="{{ s.mime }}">{% endfor %}
+    </video>
+    {% else %}
+    <img class="caption-bg" src="{{ a.poster_url }}" alt="">
+    {% endif %}
+    <canvas id="meme-canvas" class="caption-canvas"></canvas>
+  </div>
+
+  <form class="kg-panel clip-detail-info builder-controls" id="builder-form"
+        data-mode="overlay"
+        data-width="{{ asset.width|default:600 }}"
+        data-height="{{ asset.height|default:600 }}"
+        data-layers="{{ layers_json }}"
+        data-presign="{% url 'clips_presign' %}"
+        data-save-url="{% url 'clips_caption_save' asset.id %}"
+        data-asset-url="{% url 'clips_asset' asset.id %}">
+    {% csrf_token %}
+    <div class="kg-row">
+      <button type="button" class="kg-btn kg-btn-sm" id="add-text">+ Add text</button>
+    </div>
+    <p class="kg-muted" id="builder-hint">Drag a text box over the clip; drag the blue corner to resize.</p>
+    <div id="box-panel" hidden>
+      <div class="kg-field">
+        <label for="box-text">Text</label>
+        <textarea id="box-text" rows="2" autocomplete="off"></textarea>
+      </div>
+      <div class="kg-field"><label for="box-size">Size</label><input type="range" id="box-size" min="3" max="40" value="10"></div>
+      <div class="kg-field"><label for="box-width">Width</label><input type="range" id="box-width" min="20" max="100" value="80"></div>
+      <button type="button" class="kg-btn kg-btn-sm kg-btn-danger" id="del-box">Delete this text</button>
+    </div>
+    <div class="kg-row builder-publish">
+      <button type="submit" class="kg-btn" id="publish-btn">Save caption</button>
+      <a class="kg-btn kg-btn-sm" href="{% url 'clips_asset' asset.id %}">Cancel</a>
+    </div>
+    <p id="builder-status" class="kg-status" role="status" aria-live="polite"></p>
+  </form>
+</div>
+<script src="{% static 'clips/builder.js' %}" defer></script>
+{% endblock %}

@@ -392,6 +392,32 @@ def template_image_bytes(template):
     return storage.download_bytes(template.image_key)
 
 
+def save_caption(user, asset_id, *, text_key, layers):
+    """Store the caption overlay (editable layers + rendered transparent PNG) and re-index the
+    typed text. Returns the asset, or None if not found/allowed. The player overlays text_layer_key
+    over the clip; layers are the re-openable source of truth (docs/phase2-video-captioning.md)."""
+    asset = get_asset_for(user, asset_id)
+    if asset is None:
+        return None
+    layers = layers or []
+    asset.text_layer_key = (text_key or "").strip()
+    asset.caption_layers = layers
+    # We know the exact typed caption — index it (better than OCR'ing the rendered overlay).
+    caption = " ".join(
+        str(l.get("text", "")).strip() for l in layers if str(l.get("text", "")).strip()
+    )
+    fields = ["text_layer_key", "caption_layers", "updated_at"]
+    if caption:
+        asset.ocr_text = caption
+        fields.append("ocr_text")
+        if not asset.title:
+            asset.title = caption[:255]
+            fields.append("title")
+    asset.save(update_fields=fields)
+    search.upsert(asset)
+    return asset
+
+
 def regenerate_asset(user, asset_id):
     """Re-run vision auto-describe on demand (owner/superuser). Overwrites title + description and
     re-merges tags. Returns the asset, or None if not found/allowed."""
@@ -418,5 +444,6 @@ def serialize(asset):
         "is_public": asset.is_public,
         "url": storage.public_url(asset.original_key),
         "poster_url": storage.public_url(asset.poster_key or asset.original_key),
+        "text_layer_url": storage.public_url(asset.text_layer_key) if asset.text_layer_key else "",
         "created_at": asset.created_at,
     }

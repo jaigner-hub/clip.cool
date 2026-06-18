@@ -16,6 +16,10 @@
   const addBtn = document.getElementById("add-text");
   const delBtn = document.getElementById("del-box");
   const FONT = "Anton, Impact, 'Arial Narrow', sans-serif";
+  // burn   = draw the template image + text onto the canvas, export the composite (Phase 1).
+  // overlay = caption an existing clip: backdrop is a CSS <video>/<img> behind a transparent
+  //           canvas; export the text-only PNG the player overlays / ffmpeg burns in (Phase 2b).
+  const mode = form.dataset.mode || "burn";
 
   const img = new Image();
   img.crossOrigin = "anonymous";
@@ -75,7 +79,7 @@
 
   function render() {
     ctx.clearRect(0, 0, W(), H());
-    if (img.naturalWidth) ctx.drawImage(img, 0, 0, W(), H());
+    if (mode === "burn" && img.naturalWidth) ctx.drawImage(img, 0, 0, W(), H());  // overlay = transparent
     boxes.forEach(function (b, i) {
       const m = metrics(b);
       ctx.font = m.size + "px " + FONT;
@@ -200,14 +204,26 @@
     if (sel >= 0) { boxes[sel].w = widthEl.value / 100; render(); }
   });
 
-  img.onload = function () {
-    canvas.width = img.naturalWidth || 600;
-    canvas.height = img.naturalHeight || 600;
+  function start() {
     if (!boxes.length) addBox();
+    syncPanel();
     render();
-  };
-  img.onerror = function () { setStatus("Couldn't load the template image.", "error"); };
-  img.src = form.dataset.img;
+  }
+  if (mode === "overlay") {
+    // Backdrop is the page's <video>/<img>; the canvas is transparent at the clip's native size.
+    canvas.width = parseInt(form.dataset.width, 10) || 600;
+    canvas.height = parseInt(form.dataset.height, 10) || 600;
+    try { boxes = JSON.parse(form.dataset.layers || "[]") || []; } catch (e) { boxes = []; }
+    start();
+  } else {
+    img.onload = function () {
+      canvas.width = img.naturalWidth || 600;
+      canvas.height = img.naturalHeight || 600;
+      start();
+    };
+    img.onerror = function () { setStatus("Couldn't load the template image.", "error"); };
+    img.src = form.dataset.img;
+  }
   if (document.fonts && document.fonts.load) {
     document.fonts.load("64px Anton").then(render).catch(function () {});
   }
@@ -233,12 +249,23 @@
       if (!blob) { setStatus("Could not render the image.", "error"); return; }
       const ctype = "image/png";
       try {
-        setStatus("Uploading…");
-        let res = await postJSON(form.dataset.presign, { filename: "meme.png", content_type: ctype });
+        setStatus(mode === "overlay" ? "Saving caption…" : "Uploading…");
+        let res = await postJSON(form.dataset.presign, {
+          filename: mode === "overlay" ? "caption.png" : "meme.png", content_type: ctype,
+        });
         if (!res.ok) { setStatus("Presign failed: " + (await res.text()), "error"); return; }
         const j = await res.json();
         res = await fetch(j.url, { method: "PUT", headers: { "Content-Type": ctype }, body: blob });
         if (!res.ok) { setStatus("Upload failed (" + res.status + "). Check bucket CORS.", "error"); return; }
+
+        if (mode === "overlay") {
+          res = await postJSON(form.dataset.saveUrl, { text_key: j.key, layers: boxes });
+          if (!res.ok) { setStatus("Save failed: " + (await res.text()), "error"); return; }
+          setStatus("Saved — opening…", "ok");
+          window.location.href = form.dataset.assetUrl;
+          return;
+        }
+
         setStatus("Finalizing…");
         const caption = boxes.map(function (b) { return b.text.trim(); }).filter(Boolean).join(" / ");
         const title = (caption || form.dataset.name || "").slice(0, 120);
