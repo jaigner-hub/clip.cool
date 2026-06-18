@@ -1,0 +1,38 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
+{% block title %}{{ template.name }} · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <a class="kg-acct-link" href="{% url 'clips_create' %}">← Templates</a>
+  <h1 class="kg-title">{{ template.name }}</h1>
+</div>
+
+<div class="clip-detail">
+  <div class="builder-stage">
+    <canvas id="meme-canvas" class="builder-canvas">Your browser doesn't support canvas.</canvas>
+  </div>
+
+  <form class="kg-panel clip-detail-info builder-controls" id="builder-form"
+        data-img="{% url 'clips_template_image' template.id %}"
+        data-presign="{% url 'clips_presign' %}"
+        data-finalize="{% url 'clips_finalize' %}"
+        data-name="{{ template.name }}">
+    {% csrf_token %}
+    <div class="kg-field">
+      <label for="top">Top text</label>
+      <input type="text" id="top" autocomplete="off" placeholder="TOP TEXT">
+    </div>
+    <div class="kg-field">
+      <label for="bottom">Bottom text</label>
+      <input type="text" id="bottom" autocomplete="off" placeholder="BOTTOM TEXT">
+    </div>
+    <div class="kg-row">
+      <button type="submit" class="kg-btn" id="publish-btn">Publish</button>
+      <a class="kg-btn kg-btn-sm" href="{% url 'clips_create' %}">Cancel</a>
+    </div>
+    <p id="builder-status" class="kg-status" role="status" aria-live="polite"></p>
+  </form>
+</div>
+<script src="{% static 'clips/builder.js' %}" defer></script>
+{% endblock %}

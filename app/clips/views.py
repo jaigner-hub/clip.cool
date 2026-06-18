@@ -6,7 +6,7 @@ import json
 import logging
 
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, HttpResponseBadRequest, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
@@ -61,6 +61,37 @@ def asset_regenerate(request, asset_id):
     if services.regenerate_asset(request.user, asset_id) is None:
         raise Http404("Clip not found.")
     return redirect("clips_asset", asset_id=asset_id)
+
+
+@login_required
+def create_gallery(request):
+    """Pick a template to caption (the in-app meme builder)."""
+    return render(request, "clips/create.html", {
+        "active_page": "clips_create", "templates": services.list_templates(),
+    })
+
+
+@login_required
+def builder(request, template_id):
+    template = services.get_template(template_id)
+    if template is None:
+        raise Http404("Template not found.")
+    return render(request, "clips/builder.html", {"active_page": "clips_create", "template": template})
+
+
+@login_required
+def template_image(request, template_id):
+    """Same-origin proxy of a template's image so the builder canvas can export without tainting."""
+    template = services.get_template(template_id)
+    if template is None:
+        raise Http404("Template not found.")
+    try:
+        data = services.template_image_bytes(template)
+    except Exception:
+        raise Http404("Template image unavailable.")
+    resp = HttpResponse(data, content_type=template.mime or "image/png")
+    resp["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @login_required

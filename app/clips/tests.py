@@ -7,9 +7,11 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
+from django.urls import reverse
+
 from clips import services
 from clips.llm import LLMError
-from clips.models import Asset
+from clips.models import Asset, Template
 
 User = get_user_model()
 
@@ -190,3 +192,35 @@ class EditAndAccessTests(TestCase):
         a = services.regenerate_asset(self.user, str(self.asset.id))
         self.assertIsNotNone(a)
         mock_task.defer.assert_called_once_with(asset_id=str(self.asset.id), force_title=True)
+
+
+class TemplateBuilderTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("u@example.com", "u@example.com")
+        self.client.force_login(self.user)
+        self.t = Template.objects.create(
+            name="Drake Hotline Bling", image_key="templates/imgflip/181913649.jpg",
+            mime="image/jpeg", width=1200, height=1200, source="imgflip", source_id="181913649",
+        )
+
+    def test_helpers(self):
+        self.assertEqual(services.get_template(str(self.t.id)).name, "Drake Hotline Bling")
+        self.assertEqual(len(services.list_templates()), 1)
+
+    def test_gallery_lists_templates(self):
+        r = self.client.get(reverse("clips_create"))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Drake Hotline Bling")
+
+    def test_builder_page_renders(self):
+        r = self.client.get(reverse("clips_builder", args=[self.t.id]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Top text")
+
+    @patch("clips.services.template_image_bytes", return_value=b"\x89PNGfake")
+    def test_template_image_proxy_same_origin(self, mock_bytes):
+        # WHY: served same-origin so the builder canvas can export without tainting.
+        r = self.client.get(reverse("clips_template_image", args=[self.t.id]))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Content-Type"], "image/jpeg")
+        self.assertEqual(r.content, b"\x89PNGfake")

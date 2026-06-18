@@ -1,0 +1,28 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
+{% block title %}Create · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">Make a meme</h1>
+  <p class="kg-sub">Pick a template, add your caption — what you see is exactly what gets posted.</p>
+</div>
+
+{% if templates %}
+<ul class="clip-grid">
+  {% for t in templates %}
+  <li class="clip-card">
+    <a href="{% url 'clips_builder' t.id %}" title="{{ t.name }}">
+      <img class="clip-thumb" src="{% url 'clips_template_image' t.id %}" alt="{{ t.name }}" loading="lazy">
+    </a>
+    <div class="clip-meta"><span class="clip-title">{{ t.name }}</span></div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="kg-empty">
+  <p class="kg-empty-title">No templates yet</p>
+  <p class="kg-muted">Run <code>manage.py seed_templates</code> to pull the popular Imgflip templates.</p>
+</div>
+{% endif %}
+{% endblock %}

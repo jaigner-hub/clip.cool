@@ -18,7 +18,7 @@ import uuid
 from django.conf import settings
 
 from . import search, storage
-from .models import Asset
+from .models import Asset, Template
 
 logger = logging.getLogger(__name__)
 
@@ -302,6 +302,19 @@ def update_asset(user, asset_id, *, title=None, description=None, tags=None):
     asset.save(update_fields=fields)
     search.upsert(asset)
     return asset
+
+
+def list_templates(*, limit=300):
+    return list(Template.objects.all()[:limit])
+
+
+def get_template(template_id):
+    return Template.objects.filter(pk=template_id).first()
+
+
+def template_image_bytes(template):
+    """Raw template image bytes (served same-origin by the builder so the canvas isn't tainted)."""
+    return storage.download_bytes(template.image_key)
 
 
 def regenerate_asset(user, asset_id):

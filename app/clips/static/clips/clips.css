@@ -1,5 +1,37 @@
 /* clip.cool search/upload surfaces. Self-hosted (CSP script/style-src 'self'). */
 
+/* Impact-like display font for the meme builder, self-hosted (CSP font-src 'self'). */
+@font-face {
+  font-family: "Anton";
+  src: url("fonts/anton.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Meme builder. */
+.builder-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0b1220;
+  border: 1px solid #e3e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 8px;
+}
+.builder-canvas { max-width: 100%; height: auto; display: block; }
+.builder-controls .kg-field { display: block; margin-bottom: 12px; }
+.builder-controls .kg-field > label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: #1f2937; }
+.builder-controls input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+}
+
 /* Search hero — centered, Google-like; shrinks to the top once a query is run. */
 .clip-search-hero {
   display: flex;

@@ -53,3 +53,27 @@ class Asset(models.Model):
 
     def __str__(self):
         return self.title or str(self.id)
+
+
+class Template(models.Model):
+    """A blank meme template the in-app builder captions (docs/architecture.md, Phase 1). Seeded
+    from Imgflip's get_memes (clips.management.commands.seed_templates). The image bytes live in R2;
+    this is metadata only. Distinct from Asset — templates are building blocks, not searchable clips."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255)
+    image_key = models.CharField(max_length=512)   # R2 object key
+    mime = models.CharField(max_length=128, blank=True)
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    source = models.CharField(max_length=32, default="imgflip")
+    source_id = models.CharField(max_length=128, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["source", "source_id"], name="uniq_template_source"),
+        ]
+
+    def __str__(self):
+        return self.name
