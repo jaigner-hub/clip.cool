@@ -58,7 +58,14 @@
         <button type="button" class="kg-btn kg-btn-sm" data-copy="#share-url">Copy</button>
         <a class="kg-btn kg-btn-sm" href="{% url 'clip_public' asset.id %}" target="_blank" rel="noopener">Open ↗</a>
       </div>
-      <p class="kg-muted">Anyone with this link can view it — no login. Pasting it in chat/social shows a preview.</p>
+      <p class="kg-muted">Page link — shows a preview/play button in chat.</p>
+      {% if a.media_type == 'video' %}
+      <div class="clip-share-row">
+        <input type="text" id="gif-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public_mp4' asset.id %}">
+        <button type="button" class="kg-btn kg-btn-sm" data-copy="#gif-url">Copy</button>
+      </div>
+      <p class="kg-muted">GIF link — autoplays + loops inline in Discord/Slack (direct video).</p>
+      {% endif %}
     </div>
     {% else %}
     <p class="kg-muted clip-share">Private clip. <a href="{% url 'clips_edit' asset.id %}">Make it public</a> to get a share link.</p>

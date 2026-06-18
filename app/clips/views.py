@@ -82,6 +82,19 @@ def public_clip(request, asset_id):
     })
 
 
+def public_clip_mp4(request, asset_id):
+    """Clean direct-video link → 302 to the H.264 rendition. Pasted in Discord/Slack/etc. it
+    embeds as an autoplaying muted loop (GIF-style), unlike the HTML page (poster + play button)."""
+    asset = services.get_public_asset(asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    sources = services.video_sources(asset) if asset.media_type == Asset.MediaType.VIDEO else []
+    url = next((s["url"] for s in sources if s["kind"] == "h264"), None)
+    if not url:
+        raise Http404("No video rendition.")
+    return redirect(url)
+
+
 @login_required
 def caption_builder(request, asset_id):
     """Caption an existing clip (overlay mode): add text over the video/image; saves editable

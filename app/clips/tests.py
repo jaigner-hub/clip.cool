@@ -347,3 +347,23 @@ class PublicSharePageTests(TestCase):
     def test_unready_clip_is_404(self):
         a = Asset.objects.create(owner=self.user, original_key="o.png", status=Asset.Status.TRANSCODING, is_public=True)
         self.assertEqual(self.client.get(reverse("clip_public", args=[a.id])).status_code, 404)
+
+
+class PublicMp4LinkTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("mp4@example.com", "mp4@example.com")
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_mp4_link_redirects_to_h264(self, mock_url):
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, is_public=True)
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="r/h264.mp4", mime="video/mp4")
+        r = self.client.get(reverse("clip_public_mp4", args=[a.id]))   # no login
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "https://cdn/r/h264.mp4")
+
+    def test_mp4_link_private_404(self):
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, is_public=False)
+        self.assertEqual(self.client.get(reverse("clip_public_mp4", args=[a.id])).status_code, 404)

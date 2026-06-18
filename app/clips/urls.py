@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     path("c/<uuid:asset_id>/", views.public_clip, name="clip_public"),   # short public share URL
+    path("c/<uuid:asset_id>.mp4", views.public_clip_mp4, name="clip_public_mp4"),  # direct video (GIF-style embeds)
     path("clips/", views.library, name="clips_library"),
     path("clips/upload/", views.upload_page, name="clips_upload"),
     path("clips/upload/presign", views.presign, name="clips_presign"),
