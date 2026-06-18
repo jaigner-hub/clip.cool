@@ -78,3 +78,10 @@ def upload_bytes(key, data, content_type):
     _client().put_object(
         Bucket=settings.R2_BUCKET_NAME, Key=key, Body=data, ContentType=content_type
     )
+
+
+def delete(key):
+    """Delete one object. Idempotent (S3 delete of a missing key succeeds)."""
+    if not key:
+        return
+    _client().delete_object(Bucket=settings.R2_BUCKET_NAME, Key=key)

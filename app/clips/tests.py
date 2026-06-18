@@ -487,3 +487,39 @@ class DownloadLinkTests(TestCase):
         u = User.objects.create_user("d2@example.com", "d2@example.com")
         a = Asset.objects.create(owner=u, original_key="originals/x.gif", status=Asset.Status.READY, is_public=False)
         self.assertEqual(self.client.get(reverse("clip_download", args=[a.id])).status_code, 404)
+
+
+class DeleteTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("del@example.com", "del@example.com")
+        self.other = User.objects.create_user("other@example.com", "other@example.com")
+
+    @patch("clips.services.search")
+    @patch("clips.services.storage")
+    def test_delete_removes_r2_index_and_rows(self, mock_storage, mock_search):
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="originals/x.gif", poster_key="posters/x.webp",
+                                 media_type=Asset.MediaType.VIDEO, status=Asset.Status.READY)
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="renditions/x/h264.mp4", mime="video/mp4")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.GIF, r2_key="renditions/x/preview.gif", mime="image/gif")
+        self.assertTrue(services.delete_asset(self.user, a.id))
+        # every R2 object deleted (original, poster, both renditions); index doc removed; rows gone.
+        deleted = {c.args[0] for c in mock_storage.delete.call_args_list}
+        self.assertEqual(deleted, {"originals/x.gif", "posters/x.webp", "renditions/x/h264.mp4", "renditions/x/preview.gif"})
+        mock_search.remove.assert_called_once_with(a.id)
+        self.assertFalse(Asset.objects.filter(pk=a.id).exists())
+        self.assertEqual(Rendition.objects.filter(asset_id=a.id).count(), 0)
+
+    @patch("clips.services.search")
+    @patch("clips.services.storage")
+    def test_cannot_delete_someone_elses_clip(self, mock_storage, mock_search):
+        a = Asset.objects.create(owner=self.user, original_key="o.gif", status=Asset.Status.READY)
+        self.assertIsNone(services.delete_asset(self.other, a.id))   # not owner → no-op
+        self.assertTrue(Asset.objects.filter(pk=a.id).exists())
+        mock_storage.delete.assert_not_called()
+
+    def test_delete_view_requires_post_and_owner(self):
+        a = Asset.objects.create(owner=self.user, original_key="o.gif", status=Asset.Status.READY)
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.post(reverse("clips_delete", args=[a.id])).status_code, 404)  # not owner
+        self.assertTrue(Asset.objects.filter(pk=a.id).exists())

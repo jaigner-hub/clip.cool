@@ -69,6 +69,10 @@
         {% csrf_token %}
         <button type="submit" class="kg-btn kg-btn-sm">Regenerate AI labels</button>
       </form>
+      <form method="post" action="{% url 'clips_delete' asset.id %}" data-confirm="Delete this clip permanently? This removes the file, renditions, and search entry — it can't be undone.">
+        {% csrf_token %}
+        <button type="submit" class="kg-btn kg-btn-sm kg-btn-danger">Delete</button>
+      </form>
       {% endif %}
       {# Original source file — visible to anyone who can view the clip. #}
       <a class="kg-btn kg-btn-sm" href="{% url 'clip_download' asset.id %}">Download ↓</a>

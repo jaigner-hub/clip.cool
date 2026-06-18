@@ -390,6 +390,29 @@ def get_asset_for(user, asset_id):
     return qs.filter(pk=asset_id).first()
 
 
+def delete_asset(user, asset_id):
+    """Permanently delete a clip the user owns (superuser: any): every R2 object (original, poster,
+    text layer, all renditions), the Typesense doc, then the DB rows. R2/index deletes are
+    best-effort — never block the DB delete on a storage hiccup. Returns True, or None if not
+    found/allowed."""
+    asset = get_asset_for(user, asset_id)
+    if asset is None:
+        return None
+    keys = [asset.original_key, asset.poster_key, asset.text_layer_key]
+    keys += list(asset.renditions.values_list("r2_key", flat=True))
+    for key in filter(None, keys):
+        try:
+            storage.delete(key)
+        except Exception:
+            logger.warning("delete_asset: R2 delete failed for %s", key, exc_info=True)
+    try:
+        search.remove(asset.id)
+    except Exception:
+        logger.warning("delete_asset: search remove failed for %s", asset.id, exc_info=True)
+    asset.delete()  # cascades renditions
+    return True
+
+
 def update_asset(user, asset_id, *, title=None, description=None, tags=None, is_public=None):
     """Apply a user's manual edits and re-index. Returns the asset, or None if not found/allowed.
     Fields left None are unchanged; auto-describe only runs at ingest, so edits aren't clobbered."""

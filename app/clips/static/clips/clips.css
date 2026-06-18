@@ -210,6 +210,8 @@
 
 .clip-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
 .clip-actions form { margin: 0; }
+.kg-btn-danger { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
+.kg-btn-danger:hover { background: #fecaca; }
 
 .clip-ocr { margin-top: 16px; }
 .clip-ocr summary { cursor: pointer; font-size: 13px; }

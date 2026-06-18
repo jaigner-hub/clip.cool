@@ -73,6 +73,15 @@ def asset_regenerate(request, asset_id):
     return redirect("clips_asset", asset_id=asset_id)
 
 
+@login_required
+@require_POST
+def asset_delete(request, asset_id):
+    """Permanently delete a clip (owner/superuser) — R2 objects + index + DB. → My clips."""
+    if services.delete_asset(request.user, asset_id) is None:
+        raise Http404("Clip not found.")
+    return redirect("clips_library")
+
+
 def public_clip_mp4(request, asset_id):
     """Clean direct-video link → 302 to the H.264 rendition. Pasted in Discord/Slack/etc. it
     embeds as an autoplaying muted loop (GIF-style), unlike the HTML page (poster + play button)."""

@@ -1,6 +1,11 @@
-// Copy-to-clipboard for [data-copy="#selector"] buttons (CSP-clean, delegated).
+// Copy-to-clipboard for [data-copy="#selector"] buttons + confirm-on-submit for
+// form[data-confirm] (CSP-clean, delegated — no inline handlers).
 (function () {
   "use strict";
+  document.addEventListener("submit", function (e) {
+    const form = e.target.closest("form[data-confirm]");
+    if (form && !window.confirm(form.dataset.confirm)) e.preventDefault();
+  });
   document.addEventListener("click", function (e) {
     const btn = e.target.closest("[data-copy]");
     if (!btn) return;
