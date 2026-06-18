@@ -80,6 +80,7 @@ class Rendition(models.Model):
         AV1 = "av1", "AV1"
         VP9 = "vp9", "VP9"
         H264 = "h264", "H.264"
+        GIF = "gif", "GIF (chat autoplay)"   # optimized loop for Discord/Slack embeds
         POSTER = "poster", "Poster"
         SPRITE = "sprite", "Scrub sprite"
 

@@ -367,3 +367,22 @@ class PublicMp4LinkTests(TestCase):
         a = Asset.objects.create(owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
                                  status=Asset.Status.READY, is_public=False)
         self.assertEqual(self.client.get(reverse("clip_public_mp4", args=[a.id])).status_code, 404)
+
+
+class PublicGifLinkTests(TestCase):
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_gif_link_redirects_to_gif_rendition(self, mock_url):
+        from clips.models import Rendition
+        u = User.objects.create_user("g@example.com", "g@example.com")
+        a = Asset.objects.create(owner=u, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, is_public=True)
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.GIF, r2_key="r/preview.gif", mime="image/gif")
+        r = self.client.get(reverse("clip_public_gif", args=[a.id]))   # no login
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "https://cdn/r/preview.gif")
+
+    def test_gif_link_404_without_rendition(self):
+        u = User.objects.create_user("g2@example.com", "g2@example.com")
+        a = Asset.objects.create(owner=u, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, is_public=True)
+        self.assertEqual(self.client.get(reverse("clip_public_gif", args=[a.id])).status_code, 404)

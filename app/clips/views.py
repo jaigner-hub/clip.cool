@@ -95,6 +95,18 @@ def public_clip_mp4(request, asset_id):
     return redirect(url)
 
 
+def public_clip_gif(request, asset_id):
+    """Clean link → 302 to the optimized GIF rendition. Pasted in Discord/Slack it autoplays +
+    loops inline (the only format chat reliably auto-loops for arbitrary sites)."""
+    asset = services.get_public_asset(asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    url = services.rendition_url(asset, "gif")
+    if not url:
+        raise Http404("No GIF rendition.")
+    return redirect(url)
+
+
 @login_required
 def caption_builder(request, asset_id):
     """Caption an existing clip (overlay mode): add text over the video/image; saves editable

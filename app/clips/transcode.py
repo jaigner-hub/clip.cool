@@ -75,4 +75,14 @@ def transcode(src_path, workdir):
     except Exception:
         logger.warning("transcode: poster generation failed", exc_info=True)
         poster = None
-    return {"renditions": renditions, "poster": poster, "meta": meta}
+    # Optimized animated GIF for chat autoplay (Discord/Slack loop GIFs inline). Downscaled +
+    # palette-optimized so it's a fraction of a raw GIF; on-platform we still serve the mp4.
+    gif = os.path.join(workdir, "preview.gif")
+    try:
+        _run(["ffmpeg", "-y", "-i", src_path, "-vf",
+              "fps=15,scale='min(480,iw)':-1:flags=lanczos,split[s0][s1];"
+              "[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer", gif])
+    except Exception:
+        logger.warning("transcode: gif generation failed", exc_info=True)
+        gif = None
+    return {"renditions": renditions, "poster": poster, "gif": gif, "meta": meta}

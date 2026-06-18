@@ -146,6 +146,14 @@ def transcode_asset(asset_id):
                 pkey = "posters/%s.webp" % asset.id
                 storage.upload_bytes(pkey, pdata, "image/webp")
                 asset.poster_key = pkey
+            if result.get("gif"):
+                gdata = open(result["gif"], "rb").read()
+                gkey = "renditions/%s/preview.gif" % asset.id
+                storage.upload_bytes(gkey, gdata, "image/gif")
+                Rendition.objects.update_or_create(
+                    asset=asset, kind=Rendition.Kind.GIF,
+                    defaults={"r2_key": gkey, "mime": "image/gif", "bytes": len(gdata)},
+                )
             meta = result["meta"]
             asset.width = meta.get("width") or asset.width
             asset.height = meta.get("height") or asset.height
@@ -161,6 +169,12 @@ def transcode_asset(asset_id):
     except Exception:
         logger.error("clips.transcode_asset failed for %s", asset_id, exc_info=True)
         Asset.objects.filter(pk=asset_id).update(status=Asset.Status.FAILED)
+
+
+def rendition_url(asset, kind):
+    """Public URL of a single rendition kind (e.g. 'gif', 'h264'), or '' if absent."""
+    r = asset.renditions.filter(kind=kind).first()
+    return storage.public_url(r.r2_key) if r else ""
 
 
 def video_sources(asset):
