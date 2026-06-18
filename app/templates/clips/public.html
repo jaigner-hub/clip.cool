@@ -23,7 +23,6 @@
 {% endblock %}
 {% block body %}
 <div class="pub">
-  <a class="pub-brand" href="{% url 'clips_search' %}">clip.cool</a>
   <div class="pub-media clip-media-wrap">
     {% if a.media_type == 'video' and sources %}
     <video autoplay loop muted playsinline controls poster="{{ a.poster_url }}">

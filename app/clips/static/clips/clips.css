@@ -185,8 +185,7 @@
 .clip-detail-media video { width: 100%; height: auto; display: block; }
 
 /* Public share page. */
-.pub { max-width: 720px; margin: 0 auto; padding: 24px 16px; text-align: center; }
-.pub-brand { display: inline-block; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: #1f2937; text-decoration: none; margin-bottom: 16px; }
+.pub { max-width: 720px; margin: 0 auto; padding: 32px 16px; text-align: center; }
 .pub-media { display: inline-block; max-width: 100%; border-radius: 10px; overflow: hidden; background: #0b1220; }
 .pub-media img, .pub-media video { max-width: 100%; height: auto; display: block; }
 .pub-title { font-size: 20px; margin: 16px 0 12px; color: #1f2937; }
