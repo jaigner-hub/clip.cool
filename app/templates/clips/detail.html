@@ -41,17 +41,18 @@
       {% for t in a.tags %}<span class="clip-tag">{{ t }}</span>{% endfor %}
     </div>
 
-    {% if can_edit %}
     <div class="clip-actions">
+      {% if can_edit %}
       <a class="kg-btn kg-btn-sm" href="{% url 'clips_edit' asset.id %}">Edit</a>
       {% if a.media_type == 'video' %}<a class="kg-btn kg-btn-sm" href="{% url 'clips_caption' asset.id %}">{% if asset.caption_layers %}Edit captions{% else %}Add captions{% endif %}</a>{% endif %}
       <form method="post" action="{% url 'clips_regenerate' asset.id %}">
         {% csrf_token %}
         <button type="submit" class="kg-btn kg-btn-sm">Regenerate AI labels</button>
       </form>
+      {% endif %}
+      {# Original source file — visible to anyone who can view the clip. #}
       <a class="kg-acct-link" href="{{ a.url }}" target="_blank" rel="noopener">Original file ↗</a>
     </div>
-    {% endif %}
 
     {% if a.is_public %}
     <div class="clip-share">
