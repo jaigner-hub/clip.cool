@@ -12,6 +12,7 @@ import hashlib
 import io
 import logging
 import mimetypes
+import re
 import uuid
 
 from django.conf import settings
@@ -200,15 +201,34 @@ def _ocr(im):
     # Sample up to MAX frames evenly (Iterator yields properly composited frames, unlike raw seek).
     MAX = 8
     stride = max(1, n_frames // MAX)
-    texts, seen = [], set()
+    raw = []
     for i, frame in enumerate(ImageSequence.Iterator(im)):
         if i % stride:
             continue
         t = _read(frame.convert("RGB"))
-        if t and t.lower() not in seen:
-            seen.add(t.lower())
-            texts.append(t)
-    return "  ".join(texts)
+        if t:
+            raw.append(t)
+    return "  ".join(_dedup_captions(raw))
+
+
+def _dedup_captions(texts, threshold=0.5):
+    """Collapse near-duplicate OCR reads — the same caption read off different frames comes back
+    with minor noise ('WHERE IS' vs 'WHEREIS' vs 'WHERE Li)'). Group by token-set overlap and keep
+    the longest (usually cleanest) variant of each distinct caption; genuinely different captions
+    (multi-panel) stay separate."""
+    kept = []  # [(tokenset, text)]
+    for t in texts:
+        toks = set(re.findall(r"[a-z0-9']+", t.lower()))
+        if not toks:
+            continue
+        for i, (ks, kt) in enumerate(kept):
+            if len(toks & ks) / (len(toks | ks) or 1) >= threshold:
+                if len(t) > len(kt):
+                    kept[i] = (toks, t)
+                break
+        else:
+            kept.append((toks, t))
+    return [t for _, t in kept]
 
 
 def index_asset(asset_id):

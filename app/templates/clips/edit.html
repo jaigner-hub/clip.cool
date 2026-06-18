@@ -12,7 +12,7 @@
   <div class="clip-detail-media">
     <img src="{{ a.poster_url }}" alt="{{ a.title }}">
   </div>
-  <form method="post" class="kg-panel clip-detail-info">
+  <form method="post" class="kg-panel clip-detail-info clip-edit-form">
     {% csrf_token %}
     <div class="kg-field">
       <label for="title">Title</label>
@@ -20,11 +20,16 @@
     </div>
     <div class="kg-field">
       <label for="description">Description</label>
-      <textarea id="description" name="description" rows="3">{{ asset.description }}</textarea>
+      <textarea id="description" name="description" rows="4">{{ asset.description }}</textarea>
     </div>
     <div class="kg-field">
-      <label for="tags">Tags <span class="kg-muted">(comma-separated)</span></label>
-      <input type="text" id="tags" name="tags" value="{{ tags_str }}">
+      <label for="tag-input">Tags</label>
+      <div class="tag-editor" id="tag-editor">
+        {% for t in asset.tags %}<span class="tag-chip" data-tag="{{ t }}">{{ t }}<button type="button" class="tag-x" aria-label="remove tag">×</button></span>{% endfor %}
+        <input type="text" id="tag-input" class="tag-add" placeholder="add a tag…" autocomplete="off">
+      </div>
+      {# JS keeps this in sync from the chips; works without JS as a plain comma list too. #}
+      <input type="hidden" name="tags" id="tags-hidden" value="{{ tags_str }}">
     </div>
     <div class="kg-row">
       <button type="submit" class="kg-btn">Save</button>
@@ -32,4 +37,5 @@
     </div>
   </form>
 </div>
+<script src="{% static 'clips/edit.js' %}" defer></script>
 {% endblock %}

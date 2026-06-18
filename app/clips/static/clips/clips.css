@@ -84,3 +84,51 @@
 .clip-ocr { margin-top: 16px; }
 .clip-ocr summary { cursor: pointer; font-size: 13px; }
 .clip-ocr p { white-space: pre-wrap; font-size: 13px; color: #475569; margin: 6px 0 0; }
+
+/* Edit form: stacked, full-width fields. */
+.clip-edit-form .kg-field { display: block; margin-bottom: 14px; }
+.clip-edit-form .kg-field > label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: #1f2937; }
+.clip-edit-form input[type="text"],
+.clip-edit-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+}
+.clip-edit-form textarea { resize: vertical; }
+
+/* Tag chip editor. */
+.tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fff;
+  cursor: text;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #eef1f4;
+  color: #334155;
+  border-radius: 999px;
+  padding: 2px 4px 2px 10px;
+  font-size: 12px;
+}
+.tag-x {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  color: #64748b;
+  padding: 0 4px;
+}
+.tag-x:hover { color: #ef4444; }
+.tag-add { border: none; outline: none; flex: 1; min-width: 120px; font: inherit; padding: 3px 2px; }

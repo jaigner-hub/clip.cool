@@ -134,6 +134,24 @@ class AutodescribeTests(TestCase):
         mock_search.upsert.assert_not_called()
 
 
+class CaptionDedupTests(TestCase):
+    def test_collapses_noisy_repeats_keeps_distinct(self):
+        # WHY: a persistent GIF caption OCRs slightly differently per frame — collapse those to one
+        # (the longest/cleanest), but keep genuinely different captions.
+        out = services._dedup_captions([
+            "TELL ME, WHERE IS FUCKING. GANDALF?",
+            "TELL ME, WHERE Li) FUCKING GANDALF?",
+            "TELL ME, WHERE IS FUCKING GANDALF?",   # cleanest/longest-ish of the cluster
+            "ONE DOES NOT SIMPLY WALK INTO MORDOR",  # distinct caption
+        ])
+        self.assertEqual(len(out), 2)
+        self.assertIn("ONE DOES NOT SIMPLY WALK INTO MORDOR", out)
+        self.assertTrue(any("GANDALF" in o for o in out))
+
+    def test_empty(self):
+        self.assertEqual(services._dedup_captions([]), [])
+
+
 class EditAndAccessTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("u@example.com", "u@example.com")
