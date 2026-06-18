@@ -59,12 +59,16 @@
     ctx.font = size + "px " + FONT;
     let textW = 1;
     for (const ln of lines) textW = Math.max(textW, ctx.measureText(ln).width);
-    const pad = size * 0.18;
-    const boxW = Math.min(maxW, textW + pad * 2);  // selection hugs the actual text, capped at maxW
+    const stroke = Math.max(2, size / 8);
+    const padX = size * 0.16 + stroke / 2;
+    const padY = size * 0.20 + stroke / 2;        // room for the outline above/below the glyphs
     const lineH = size * 1.08;
-    const h = lines.length * lineH;
+    const textH = lines.length * lineH;
+    const boxW = Math.min(W(), textW + padX * 2);  // hug the text (+ outline), capped at canvas
+    const boxH = textH + padY * 2;
     const cx = b.cx * W(), cy = b.cy * H();
-    return { size, maxW, boxW, lines, lineH, h, cx, cy, x: cx - boxW / 2, y: cy - h / 2 };
+    const x = cx - boxW / 2, y = cy - boxH / 2;
+    return { size, maxW, boxW, boxH, lines, lineH, cx, cy, x, y, textTop: y + padY };
   }
 
   function handleSize() { return Math.max(12, W() * 0.022); }
@@ -76,13 +80,13 @@
       const m = metrics(b);
       ctx.font = m.size + "px " + FONT;
       ctx.textAlign = "center";
-      ctx.textBaseline = "top";
+      ctx.textBaseline = "middle";
       ctx.lineJoin = "round";
       ctx.lineWidth = Math.max(2, m.size / 8);
       ctx.strokeStyle = "#000";
       ctx.fillStyle = "#fff";
       m.lines.forEach(function (ln, li) {
-        const y = m.y + li * m.lineH;
+        const y = m.textTop + (li + 0.5) * m.lineH;   // center of each line slot
         ctx.strokeText(ln, m.cx, y);
         ctx.fillText(ln, m.cx, y);
       });
@@ -92,10 +96,10 @@
         ctx.strokeStyle = "#2563eb";
         ctx.lineWidth = Math.max(1.5, W() * 0.003);
         ctx.setLineDash([7, 5]);
-        ctx.strokeRect(m.x, m.y, m.boxW, m.h);
+        ctx.strokeRect(m.x, m.y, m.boxW, m.boxH);
         ctx.setLineDash([]);
         ctx.fillStyle = "#2563eb";
-        ctx.fillRect(m.x + m.boxW - hs / 2, m.y + m.h - hs / 2, hs, hs);  // resize handle
+        ctx.fillRect(m.x + m.boxW - hs / 2, m.y + m.boxH - hs / 2, hs, hs);  // resize handle
         ctx.restore();
       }
     });
@@ -111,11 +115,11 @@
   function onHandle(b, p) {
     const m = metrics(b), hs = handleSize();
     return p.x >= m.x + m.boxW - hs && p.x <= m.x + m.boxW + hs &&
-           p.y >= m.y + m.h - hs && p.y <= m.y + m.h + hs;
+           p.y >= m.y + m.boxH - hs && p.y <= m.y + m.boxH + hs;
   }
   function onBox(b, p) {
     const m = metrics(b);
-    return p.x >= m.x && p.x <= m.x + m.boxW && p.y >= m.y && p.y <= m.y + m.h;
+    return p.x >= m.x && p.x <= m.x + m.boxW && p.y >= m.y && p.y <= m.y + m.boxH;
   }
 
   function syncPanel() {
