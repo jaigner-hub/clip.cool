@@ -14,6 +14,8 @@ cf_tunnel_name: "vent-keygrip"
 cf_ingress:
   - hostname: "id.vent.dog"
     service: "http://host.docker.internal:8080"   # Keycloak is host-networked (HA cluster)
+  - hostname: "id.clip.cool"
+    service: "http://host.docker.internal:8080"   # Keycloak issuer migration (id.vent.dog → id.clip.cool)
   # Django /admin is PUBLIC (same-origin, staff via Keycloak SSO session). The break-glass
   # *password* form is host-gated in the app itself (web.views.admin_login_gate via
   # DJANGO_BREAK_GLASS_LOGIN_HOSTS) to the Tailscale Serve host only — ADR 0002 holds without a
@@ -89,6 +91,7 @@ cf_ingress2:
   - { hostname: "app.vent.dog", service: "http://webapp:8000" }
   - { hostname: "clip.cool", path: "^/metrics", service: "http_status:404" }
   - { hostname: "clip.cool", service: "http://webapp:8000" }
+  - { hostname: "id.clip.cool", service: "http://host.docker.internal:8080" }   # Keycloak (issuer migration)
 
 # --- clip.cool apex cutover ---
 # A 3rd Load Balancer named "clip.cool", created in the clip.cool ZONE, pointing at the SAME shared
@@ -97,7 +100,9 @@ cf_ingress2:
 # token to carry DNS/LB edit on the clip.cool zone.
 cf_apex_enabled: true
 cf_apex_zone_name: "clip.cool"
-cf_apex_lb_hostname: "clip.cool"
+cf_apex_lb_hostnames:        # all created in the clip.cool zone, on the shared `keygrip` pool
+  - "clip.cool"
+  - "id.clip.cool"           # Keycloak issuer host (KC_HOSTNAME migration from id.vent.dog)
 
 # --- Cloudflare Access (Zero Trust) ---
 # Token now carries the "Access: Apps and Policies — Edit" scope, so this is ON.
@@ -153,6 +158,16 @@ cf_access_apps:
     session_duration: "24h"
     policy_name: "Admins"
     # Cloudflare Access "include" rules — verbatim API shape.
+    include:
+      - email: { email: "jeff.aigner@gmail.com" }
+      - email: { email: "brad@keygrip.ai" }
+      - email: { email: "zach@keygrip.ai" }
+  # Keycloak admin console on the new issuer host (id.clip.cool) — same allow-list as id.vent.dog.
+  - name: "id-clip"
+    domain: "id.clip.cool/admin"
+    type: "self_hosted"
+    session_duration: "24h"
+    policy_name: "Admins"
     include:
       - email: { email: "jeff.aigner@gmail.com" }
       - email: { email: "brad@keygrip.ai" }

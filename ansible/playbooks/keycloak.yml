@@ -5,5 +5,9 @@
 - name: Keycloak + Postgres (dev)
   hosts: dev
   become: true
+  # serial: 1 = recreate one Keycloak node at a time so the CF LB (id.* → keycloak pool) always has
+  # the peer serving — a KC_HOSTNAME change doesn't bounce both nodes at once. The Infinispan cluster
+  # tolerates a node leaving/rejoining.
+  serial: 1
   roles:
     - keycloak

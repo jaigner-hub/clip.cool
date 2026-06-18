@@ -135,7 +135,7 @@ BREAK_GLASS_LOGIN_HOSTS = [h for h in env("DJANGO_BREAK_GLASS_LOGIN_HOSTS", "").
 # name so a throwaway local tab is never mistaken for production. Exposed via web.context_processors.
 KG_INSTANCE_LABEL = None
 
-_ISSUER = env("KEYCLOAK_ISSUER", "https://id.vent.dog/realms/keygrip").rstrip("/")
+_ISSUER = env("KEYCLOAK_ISSUER", "https://id.clip.cool/realms/keygrip").rstrip("/")
 KEYCLOAK_ISSUER = _ISSUER  # used by the JSON API bearer auth (web.api_auth)
 # Logout posts to /oidc/logout/ which 302s to Keycloak; CSP form-action is enforced across
 # that redirect, so the Keycloak origin must be allowed.

@@ -8,7 +8,7 @@ prometheus_bind: "127.0.0.1:9090"
 grafana_bind: "127.0.0.1:3000"          # Tailscale Serve fronts this on :8443
 grafana_domain: "vent-keygrip.tail1ec6c3.ts.net"
 grafana_root_url: "https://vent-keygrip.tail1ec6c3.ts.net:8443/"
-grafana_oidc_issuer: "https://id.vent.dog/realms/keygrip"
+grafana_oidc_issuer: "https://id.clip.cool/realms/keygrip"
 grafana_oidc_client_id: "grafana"
 
 # --- Alertmanager → Resend (foundation-backlog: turn dashboards into notifications) ---
@@ -39,7 +39,7 @@ tempo_image: "grafana/tempo:2.6.1"
 blackbox_image: "quay.io/prometheus/blackbox-exporter:v0.25.0"
 blackbox_targets:
   - "https://app.vent.dog/"
-  - "https://id.vent.dog/realms/keygrip"
+  - "https://id.clip.cool/realms/keygrip"
   - "https://vent.dog/"
 
 # stash HA liveness: the two keyed nodes are the `dev` hosts (probed on their

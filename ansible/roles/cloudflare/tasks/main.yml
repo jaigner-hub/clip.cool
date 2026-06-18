@@ -384,21 +384,22 @@
       register: cf_apex_lbs
       when: cf_apex_enabled | bool
 
-    - name: Create the clip.cool apex load balancer on the shared pool if absent
+    - name: Create the apex-zone load balancers (clip.cool + id.clip.cool) on the shared pool if absent
       ansible.builtin.uri:
         url: "{{ cf_api }}/zones/{{ cf_apex_zone_lookup.json.result[0].id }}/load_balancers"
         method: POST
         headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
         body_format: json
         body:
-          name: "{{ cf_apex_lb_hostname }}"
+          name: "{{ item }}"
           default_pools: ["{{ cf_pool_id }}"]
           fallback_pool: "{{ cf_pool_id }}"
           proxied: true
           enabled: true
           steering_policy: "off"
         status_code: [200, 201]
+      loop: "{{ cf_apex_lb_hostnames }}"
       when:
         - cf_apex_enabled | bool
-        - cf_apex_lb_hostname not in (cf_apex_lbs.json.result | map(attribute='name') | list)
+        - item not in (cf_apex_lbs.json.result | map(attribute='name') | list)
       changed_when: true

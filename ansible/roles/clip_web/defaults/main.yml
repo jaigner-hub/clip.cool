@@ -11,7 +11,7 @@ app_alt_hostnames: ["app.vent.dog"]
 # roles/keycloak_realm.
 app_tailnet_host: vent-keygrip.tail1ec6c3.ts.net
 app_tailnet_https_port: 8447
-keycloak_issuer: "https://id.vent.dog/realms/keygrip"
+keycloak_issuer: "https://id.clip.cool/realms/keygrip"
 # Internal Keycloak base for JWKS + admin API (skips Cloudflare's urllib-UA 403). Keycloak is
 # host-networked on each box (HA cluster), so the app reaches its LOCAL Keycloak via host-gateway
 # (webapp/worker already carry extra_hosts: host.docker.internal:host-gateway).

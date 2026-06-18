@@ -27,7 +27,7 @@ x-app-env: &app_env
   # Instance name (e.g. "demo") — drives the "dev instance" banner across the top of every page so
   # a local tab is never mistaken for prod (keygrip/settings/dev.py → KG_INSTANCE_LABEL).
   MC_INSTANCE_NAME: ${MC_INSTANCE_NAME:-}
-  KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-https://id.vent.dog/realms/keygrip}
+  KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-https://id.clip.cool/realms/keygrip}
   OIDC_RP_CLIENT_ID: keygrip-web
   OIDC_RP_CLIENT_SECRET: ${OIDC_RP_CLIENT_SECRET:-}
   OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}

@@ -9,4 +9,4 @@ glitchtip_db_user: glitchtip
 glitchtip_bind: "127.0.0.1:8082"     # Tailscale Serve fronts this on :8445
 glitchtip_domain: "https://vent-keygrip.tail1ec6c3.ts.net:8445"
 # Keycloak OIDC (SSO). server_url = the realm issuer; allauth fetches discovery from it.
-glitchtip_oidc_server_url: "https://id.vent.dog/realms/keygrip"
+glitchtip_oidc_server_url: "https://id.clip.cool/realms/keygrip"
