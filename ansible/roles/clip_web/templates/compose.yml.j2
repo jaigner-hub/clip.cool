@@ -77,8 +77,8 @@ services:
       DB_HOST: host.docker.internal
       DB_PORT: "6432"
       # webapp = Prometheus scrape host (edge net); app_tailnet_host = Tailscale Serve (break-glass).
-      DJANGO_ALLOWED_HOSTS: "{{ app_hostname }},webapp,{{ app_tailnet_host }}"
-      DJANGO_CSRF_TRUSTED_ORIGINS: "https://{{ app_hostname }},https://{{ app_tailnet_host }}:{{ app_tailnet_https_port }}"
+      DJANGO_ALLOWED_HOSTS: "{{ ([app_hostname] + app_alt_hostnames + ['webapp', app_tailnet_host]) | join(',') }}"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "{{ ((([app_hostname] + app_alt_hostnames) | map('regex_replace', '^', 'https://') | list) + ['https://' + app_tailnet_host + ':' + (app_tailnet_https_port | string)]) | join(',') }}"
       # ADR 0002: /admin is public (same-origin; staff use their Keycloak SSO session), but the
       # *password* login form only exists on the tailnet Serve host — the app's admin_login_gate
       # routes every other host through OIDC, so the break-glass credential is dead publicly.

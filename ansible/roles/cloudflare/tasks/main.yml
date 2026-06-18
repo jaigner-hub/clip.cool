@@ -358,3 +358,47 @@
       loop: "{{ cf_lb_hostnames }}"
       when: item not in (cf_lbs.json.result | map(attribute='name') | list)
       changed_when: true
+
+    # --- clip.cool apex: a 3rd LB on the SAME shared pool, but in the clip.cool ZONE ---
+    - name: Resolve the clip.cool (apex) zone id
+      ansible.builtin.uri:
+        url: "{{ cf_api }}/zones?name={{ cf_apex_zone_name }}"
+        method: GET
+        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
+      register: cf_apex_zone_lookup
+      when: cf_apex_enabled | bool
+
+    - name: Fail clearly if the apex zone isn't on the account / token can't see it
+      ansible.builtin.assert:
+        that: cf_apex_zone_lookup.json.result | length > 0
+        fail_msg: >-
+          Apex zone '{{ cf_apex_zone_name }}' not found on account {{ cf_account_id }}
+          (or the API token lacks scope on it). Activate the zone + grant the token DNS/LB edit.
+      when: cf_apex_enabled | bool
+
+    - name: List load balancers in the apex zone
+      ansible.builtin.uri:
+        url: "{{ cf_api }}/zones/{{ cf_apex_zone_lookup.json.result[0].id }}/load_balancers"
+        method: GET
+        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
+      register: cf_apex_lbs
+      when: cf_apex_enabled | bool
+
+    - name: Create the clip.cool apex load balancer on the shared pool if absent
+      ansible.builtin.uri:
+        url: "{{ cf_api }}/zones/{{ cf_apex_zone_lookup.json.result[0].id }}/load_balancers"
+        method: POST
+        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
+        body_format: json
+        body:
+          name: "{{ cf_apex_lb_hostname }}"
+          default_pools: ["{{ cf_pool_id }}"]
+          fallback_pool: "{{ cf_pool_id }}"
+          proxied: true
+          enabled: true
+          steering_policy: "off"
+        status_code: [200, 201]
+      when:
+        - cf_apex_enabled | bool
+        - cf_apex_lb_hostname not in (cf_apex_lbs.json.result | map(attribute='name') | list)
+      changed_when: true

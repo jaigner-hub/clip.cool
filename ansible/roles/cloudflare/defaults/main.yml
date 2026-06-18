@@ -24,6 +24,12 @@ cf_ingress:
     service: "http_status:404"
   - hostname: "app.vent.dog"
     service: "http://webapp:8000"
+  # clip.cool apex cutover — dual-served with app.vent.dog (both route to the app) during transition.
+  - hostname: "clip.cool"
+    path: "^/metrics"
+    service: "http_status:404"
+  - hostname: "clip.cool"
+    service: "http://webapp:8000"
   # Vent chat — single active backend on vent.dog (Dendrite/LiveKit can't run two nodes yet), so these
   # are CNAMEs to THIS tunnel (cf_dns_hostnames), NOT load-balanced across both boxes. vent-web serves
   # the SPA and reverse-proxies /api,/_matrix,/health to vent-server; auth is at Keycloak so it's public.
@@ -81,6 +87,17 @@ cf_ingress2:
   - { hostname: "id.vent.dog", service: "http://host.docker.internal:8080" }   # host-networked Keycloak
   - { hostname: "app.vent.dog", path: "^/metrics", service: "http_status:404" }
   - { hostname: "app.vent.dog", service: "http://webapp:8000" }
+  - { hostname: "clip.cool", path: "^/metrics", service: "http_status:404" }
+  - { hostname: "clip.cool", service: "http://webapp:8000" }
+
+# --- clip.cool apex cutover ---
+# A 3rd Load Balancer named "clip.cool", created in the clip.cool ZONE, pointing at the SAME shared
+# `keygrip` pool — so the apex is HA across both boxes exactly like app.vent.dog (CF flattens the
+# apex). Dual-served with app.vent.dog during the cutover; drop app.vent.dog later. Needs the API
+# token to carry DNS/LB edit on the clip.cool zone.
+cf_apex_enabled: true
+cf_apex_zone_name: "clip.cool"
+cf_apex_lb_hostname: "clip.cool"
 
 # --- Cloudflare Access (Zero Trust) ---
 # Token now carries the "Access: Apps and Policies — Edit" scope, so this is ON.
