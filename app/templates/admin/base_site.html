@@ -10,12 +10,12 @@
 
 {% block branding %}
 {% include "_devbar.html" %}
-<div id="site-name"><a href="{% url 'admin:index' %}" class="kg-admin-brand">keygrip</a></div>
+<div id="site-name"><a href="{% url 'admin:index' %}" class="kg-admin-brand">clip.cool</a></div>
 {% if user.is_authenticated %}
 {# Same links as the app shell (templates/app_base.html) so staff navigate consistently. #}
 <nav class="kg-admin-nav">
-  <a href="{% url 'home' %}">Projects</a>
-  {% if is_org_member %}<a href="{% url 'api_credentials' %}">API credentials</a>{% endif %}
+  <a href="{% url 'clips_search' %}">Search</a>
+  <a href="{% url 'clips_upload' %}">Upload</a>
 </nav>
 {% endif %}
 {% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}

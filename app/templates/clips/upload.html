@@ -1,0 +1,34 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block title %}Upload · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">Upload an image</h1>
+  <p class="kg-sub">It uploads straight to storage, then we generate a poster, OCR the text, and index it for search.</p>
+</div>
+
+<form id="clip-upload" class="kg-panel"
+      data-presign-url="{% url 'clips_presign' %}"
+      data-finalize-url="{% url 'clips_finalize' %}"
+      data-search-url="{% url 'clips_search' %}">
+  <div class="kg-field">
+    <label for="clip-file">Image</label>
+    <input type="file" id="clip-file" accept="image/*" required>
+  </div>
+  <div class="kg-field">
+    <label for="clip-title">Title <span class="kg-muted">(optional)</span></label>
+    <input type="text" id="clip-title" maxlength="255" placeholder="e.g. distracted boyfriend">
+  </div>
+  <div class="kg-field">
+    <label for="clip-tags">Tags <span class="kg-muted">(comma-separated, optional)</span></label>
+    <input type="text" id="clip-tags" placeholder="reaction, classic">
+  </div>
+  <div class="kg-row">
+    <button type="submit" class="kg-btn">Upload</button>
+    <a class="kg-btn kg-btn-sm" href="{% url 'clips_search' %}">Search</a>
+  </div>
+  <p id="clip-status" class="kg-status" role="status" aria-live="polite"></p>
+</form>
+
+<script src="{% static 'clips/upload.js' %}" defer></script>
+{% endblock %}

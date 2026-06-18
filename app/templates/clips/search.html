@@ -1,0 +1,43 @@
+{% extends "app_base.html" %}
+{% block title %}Search · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">Search</h1>
+  <p class="kg-sub">Matches titles, tags, and text read out of the image (OCR). Typo-tolerant.</p>
+  <a class="kg-btn kg-btn-sm" href="{% url 'clips_upload' %}">Upload</a>
+</div>
+
+<form method="get" action="{% url 'clips_search' %}" class="kg-search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search clips…" autofocus>
+  <button type="submit" class="kg-btn">Search</button>
+</form>
+
+{% if q %}
+  {% if results %}
+  <ul class="kg-grid">
+    {% for r in results %}
+    <li class="kg-card">
+      <a href="{{ r.url }}" target="_blank" rel="noopener">
+        <img class="kg-thumb" src="{{ r.poster_url }}" alt="{{ r.title }}" loading="lazy">
+      </a>
+      <div class="kg-card-meta">
+        <span class="kg-card-title">{{ r.title|default:r.id }}</span>
+        {% if r.status != 'ready' %}<span class="kg-pill">{{ r.status }}</span>{% endif %}
+        {% for t in r.tags %}<span class="kg-pill">{{ t }}</span>{% endfor %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="kg-empty">
+    <p class="kg-empty-title">No matches for “{{ q }}”</p>
+    <p class="kg-muted">Try fewer words, or a word visible in the image.</p>
+  </div>
+  {% endif %}
+{% else %}
+<div class="kg-empty">
+  <p class="kg-empty-title">Search your clips</p>
+  <p class="kg-muted">Results show title, tags, and OCR'd text matches.</p>
+</div>
+{% endif %}
+{% endblock %}

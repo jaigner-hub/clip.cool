@@ -41,6 +41,24 @@ x-app-env: &app_env
   DB_NAME: {{ app_db_name }}
   DB_USER: {{ app_db_user }}
   DB_PASSWORD: ${DB_PASSWORD:?}
+  # --- Cloudflare R2 (object storage; docs/architecture.md). All from stash (clip/web/*) via the
+  # tmpfs .env. In the shared anchor so the worker has them too — it reads originals from R2 for
+  # OCR/transcode. Empty ⇒ the storage helper raises a clear error; the rest of the app still
+  # serves. The S3 client uses ACCESS_KEY_ID + SECRET_ACCESS_KEY + S3_API_ENDPOINT + BUCKET_NAME;
+  # API_TOKEN is the account-level mgmt token (optional). PUBLIC_BASE (the r2.dev / CDN URL) is
+  # optional — empty ⇒ the app serves short-lived presigned GET URLs instead. ---
+  R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+  R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+  R2_S3_API_ENDPOINT: ${R2_S3_API_ENDPOINT:-}
+  R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+  R2_API_TOKEN: ${R2_API_TOKEN:-}
+  R2_PUBLIC_BASE: ${R2_PUBLIC_BASE:-}
+  # --- Typesense (search; docs/architecture.md). Host is the edge-net name on vent.dog; vent.dog2
+  # overrides search_host to vent.dog's tailnet IP (inventory.yml). Key comes from stash. ---
+  TYPESENSE_HOST: "{{ search_host }}"
+  TYPESENSE_PORT: "{{ search_port }}"
+  TYPESENSE_PROTOCOL: "{{ search_protocol }}"
+  TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-}
 
 services:
   # NOTE: the single-node `appdb` was RETIRED 2026-06-11 — the app runs on the HA Patroni cluster
@@ -81,7 +99,7 @@ services:
       context: ./src
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: ["python", "manage.py", "procrastinate", "worker", "--queues", "default,batch,workflow,aeo"]
+    command: ["python", "manage.py", "procrastinate", "worker", "--queues", "default,index,thumbs"]
     environment:
       <<: *app_env
       OTEL_SERVICE_NAME: clip-worker   # trace service.name for the queue tier (ADR 0015)

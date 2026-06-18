@@ -1,0 +1,47 @@
+---
+- name: Assert the Typesense API key is available
+  ansible.builtin.assert:
+    that:
+      - vault_typesense_api_key is defined
+      - vault_typesense_api_key | length > 0
+    fail_msg: >-
+      vault_typesense_api_key is not set. Add it to SOPS (group_vars/dev) with
+      `bin/secrets set dev vault_typesense_api_key <key>` and run via ./ac. The SAME value must
+      also be in stash under clip/web/TYPESENSE_API_KEY so clip-web can authenticate.
+
+- name: Ensure typesense dir
+  ansible.builtin.file:
+    path: "{{ typesense_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Render .env (secret)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ typesense_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Render compose.yml
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ typesense_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Ensure the shared edge network exists
+  ansible.builtin.command: docker network create keygrip-edge
+  register: _edge_net
+  changed_when: _edge_net.rc == 0
+  failed_when: _edge_net.rc != 0 and 'already exists' not in _edge_net.stderr
+
+- name: Bring up Typesense
+  community.docker.docker_compose_v2:
+    project_src: "{{ typesense_dir }}"
+    state: present
+    pull: missing

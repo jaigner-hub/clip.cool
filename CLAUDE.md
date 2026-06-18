@@ -11,9 +11,11 @@ This is a **fresh app built on the infrastructure scaffolding developed for `key
 (Matrix/dendrite + LiveKit + the Go `vent` server) **keeps running beside it** on the shared
 platform.
 
-> **Status: scaffolding ported, app not yet built.** Ansible infra + deploy tooling are in place and
-> the app-tier is renamed `keygrip → clip`. But `app/` is **still keygrip's Django CMS** awaiting the
-> rewrite into the clip media app, and the public apex edge cutover (`clip.cool`) is pending.
+> **Status: media app under way.** Ansible infra + deploy tooling are in place, the app-tier is
+> renamed `keygrip → clip`, and the first product slice ships: the **`clips`** app (image ingest →
+> R2 → OCR → Typesense search). The keygrip CMS (`recommendations`, `tenancy`) has been **removed**;
+> the Django package stays named `keygrip` for now. The app serves on **`app.vent.dog`** (interim —
+> the `clip.cool` apex edge cutover is pending DNS). R2 + Typesense are wired.
 > **Trust [`docs/migration-from-keygrip.md`](./docs/migration-from-keygrip.md) for current state.**
 >
 > - What clip is + the media pipeline: [`docs/architecture.md`](./docs/architecture.md)
@@ -113,10 +115,12 @@ automated test/secret-scan gate** — be careful committing.
 
 ## Remaining work (from `docs/migration-from-keygrip.md`)
 
-1. **Cloudflare apex cutover (`clip.cool`)** — the `cloudflare` role is single-zone on `vent.dog`;
-   serving at the `clip.cool` apex needs that zone + an ingress/LB/Access change. Until then the app
-   has no working public origin (OIDC redirects already target `clip.cool`).
-2. **New clip components** — R2 bucket + creds, the ffmpeg transcode worker tier, Meilisearch/Typesense.
-3. **App rewrite** — `app/` is still keygrip's CMS; gut it to the clip media app (the Django package
-   stays named `keygrip` until this).
+1. **Cloudflare apex cutover (`clip.cool`)** — the app serves on `app.vent.dog` for now; the apex is
+   the later flip (the `clip.cool` zone + moving `app_hostname`/redirect URIs/`cf_zone`/ingress/LB/
+   monitor/uptime-check/`drain.sh` from `app.vent.dog` → `clip.cool`). Pending the DNS verification.
+2. **Video pipeline** — the ffmpeg/`svt-av1` transcode tier + heavy-worker image, `<video>`
+   renditions, perceptual `pHash` dedup. The current slice is **images only** (R2 + Typesense + OCR
+   are done and wired). R2 bucket/CORS provisioning is a one-time Cloudflare step.
+3. **App rewrite** — under way: `clips` media app shipped, CMS (`recommendations`/`tenancy`) removed.
+   Still keygrip-named as a Django package; full package rename is a later pass.
 4. **CI / docs** — `.github/`, `.githooks/`, ADRs.

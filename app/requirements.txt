@@ -20,6 +20,14 @@ procrastinate==3.8.1
 sentry-sdk==2.62.0
 httpx==0.28.1
 beautifulsoup4==4.15.0
+# --- clip.cool media pipeline (docs/architecture.md) ---
+# boto3: S3-compatible client for Cloudflare R2 (presigned uploads + worker reads).
+# typesense: search index client. Pillow: image decode/dimensions + poster thumbnails.
+# pytesseract: OCR of burned-in text (needs the `tesseract-ocr` system pkg — see Dockerfile).
+boto3==1.40.16
+typesense==1.1.1
+Pillow==11.3.0
+pytesseract==0.3.13
 # Distributed tracing → OTLP/gRPC → Alloy → Tempo (infra-gap-analysis.md #7, ADR 0015). No-op
 # unless OTEL_EXPORTER_OTLP_ENDPOINT is set (keygrip/tracing.py). SDK + instrumentation versions
 # skew by design (sdk 1.x / instrumentation 0.Nx); bump as a group via Dependabot.

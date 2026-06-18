@@ -1,0 +1,12 @@
+---
+# Typesense — clip.cool's search engine (docs/architecture.md). Single instance on vent.dog
+# (primary): the index is a rebuildable projection of Postgres, so no HA. clip-web on both boxes
+# reaches it (vent.dog by the edge-net name `typesense`, vent.dog2 over the tailnet — search_host
+# override in inventory.yml). Secret: vault_typesense_api_key (SOPS); the same value must also be
+# in stash as clip/web/TYPESENSE_API_KEY for the app side.
+#   ./ac ansible-playbook playbooks/typesense.yml
+- name: Typesense (search engine)
+  hosts: primary
+  become: true
+  roles:
+    - typesense

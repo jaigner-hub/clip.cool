@@ -1,11 +1,9 @@
 """Keycloak bearer-token auth for the JSON API (ADR 0011).
 
 API clients send `Authorization: Bearer <Keycloak JWT>`. We validate the signature
-against Keycloak's JWKS (+ exp + issuer), then resolve the token to an actor:
-- user token (has `email`) → the matching Django user (org via membership);
-- machine token (client-credentials, no `email`) → a ServiceAccountPrincipal, org
-  resolved from the token's `azp` (client_id) via the ServiceAccount table (ADR 0011).
-No custom credential store — Keycloak is sole auth.
+against Keycloak's JWKS (+ exp + issuer), then resolve the token to the matching Django user
+(the token must carry `email` — i.e. a user token). Machine/client-credentials tokens are not
+accepted; the clip API is user-scoped. No custom credential store — Keycloak is sole auth.
 
 `decode_keycloak_token` is a module-level seam so tests can patch it (hermetic — no
 live Keycloak in CI; the real JWKS path is exercised by the live deploy check).
@@ -93,17 +91,14 @@ class KeycloakAuth(AuthBase):
             claims = decode_keycloak_token(token)
         except Exception:
             return None  # -> 401
+        # User tokens only: a valid Keycloak user JWT (carries `email`) → the matching Django user.
+        # Machine (client-credentials) tokens are not accepted — the clip API is user-scoped; a
+        # service-account path can be re-added when there's a consumer for it.
         email = claims.get("email")
-        if email:
-            user = get_user_model().objects.filter(username=email, is_active=True).first()
-            if user is None:
-                return None  # valid token but user not provisioned (staff onboarding, ADR 0009)
-            request.user = user
-            return user
-        # No email → machine token (client-credentials). Resolve the org from the client (azp).
-        from tenancy.services import ServiceAccountPrincipal, get_service_account
-
-        sa = get_service_account(claims.get("azp") or claims.get("client_id"))
-        if sa is None:
-            return None  # unknown/inactive service-account client
-        return ServiceAccountPrincipal(sa.organization, sa.client_id)
+        if not email:
+            return None  # not a user token
+        user = get_user_model().objects.filter(username=email, is_active=True).first()
+        if user is None:
+            return None  # valid token but user not provisioned (staff onboarding, ADR 0009)
+        request.user = user
+        return user

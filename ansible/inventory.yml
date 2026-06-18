@@ -31,10 +31,13 @@ all:
           # tailnet (Alloy + GlitchTip publish on vent.dog's tailnet IP 100.106.141.112; ufw allows it).
           app_otel_endpoint: "http://100.106.141.112:4317"
           app_sentry_dsn: "{{ vault_sentry_dsn | replace('gt-web:8080', '100.106.141.112:8090') }}"
-          # stash agent: overlay this box's per-host secrets over the kg/web base.
-          # Keys directly under here win by env name — e.g. kg/web/vent.dog2/sentry_dsn
+          # stash agent: overlay this box's per-host secrets over the clip/web base.
+          # Keys directly under here win by env name — e.g. clip/web/vent.dog2/sentry_dsn
           # provides the tailnet-rewritten SENTRY_DSN (mirrors app_sentry_dsn above).
-          stash_overlay: "kg/web/vent.dog2"
+          stash_overlay: "clip/web/vent.dog2"
+          # Typesense runs on vent.dog only (primary). This 2nd app node reaches it over the
+          # tailnet (the edge-net `typesense` name is local to vent.dog), mirroring app_otel_endpoint.
+          search_host: "100.106.141.112"
           # Auto-reboot window staggered 1h after vent.dog (default 04:00) so they never reboot together.
           drain_reboot_time: "05:00"
       # NOTE: the etcd witness ("monitor", homelab) is a NixOS box configured from

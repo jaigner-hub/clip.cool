@@ -35,8 +35,7 @@ INSTALLED_APPS = [
     "hijack",
     "hijack.contrib.admin",  # adds an "Impersonate" button to the admin user list
     "web",
-    "tenancy",
-    "recommendations",
+    "clips",
 ]
 
 def enable_procrastinate(installed_apps):
@@ -54,8 +53,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "hijack.middleware.HijackUserMiddleware",  # marks request.user.is_hijacked (before org resolve)
-    "tenancy.middleware.OrganizationMiddleware",  # request.organization (needs request.user)
+    "hijack.middleware.HijackUserMiddleware",  # marks request.user.is_hijacked
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "web.middleware.CSPMiddleware",  # strict nonce-based CSP + Permissions-Policy on every response
@@ -83,7 +81,6 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-                "tenancy.context_processors.org_admin",
                 "web.context_processors.admin_link",
                 "web.context_processors.instance_banner",
             ]
@@ -182,13 +179,34 @@ KC_ADMIN_CLIENT_SECRET = env("KC_ADMIN_CLIENT_SECRET", "")
 # so relax CSP ONLY on the docs path. Every real app page stays strict.
 CSP_RELAXED_PREFIXES = ["/api/v1/docs"]
 
-# --- Recommendations API → OpenRouter (ADR 0013) ---
-# Same provider as the old zrag system: Claude models via OpenRouter's OpenAI-compatible API.
-# Key is SOPS-managed in prod (see docs/adr/0001-secrets-management.md inventory); unset locally
-# ⇒ generation raises a clear LLMError (the rest of the app still runs).
-OPENROUTER_API_KEY = env("OPENROUTER_API_KEY", "")
-OPENROUTER_REFERER = env("OPENROUTER_REFERER", "https://app.vent.dog")  # OpenRouter attribution
-OPENROUTER_TITLE = env("OPENROUTER_TITLE", "Keygrip Recommendations")
+# --- clip.cool media: Cloudflare R2 (storage) + Typesense (search) (docs/architecture.md) ---
+# All from env (ultimately stash clip/web/*). Empty ⇒ the storage/search helpers raise a clear
+# error; the rest of the app still serves. clips/storage.py + clips/search.py read these.
+R2_S3_API_ENDPOINT = env("R2_S3_API_ENDPOINT", "").rstrip("/")
+R2_ACCESS_KEY_ID = env("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = env("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET_NAME = env("R2_BUCKET_NAME", "")
+R2_PUBLIC_BASE = env("R2_PUBLIC_BASE", "").rstrip("/")  # r2.dev / CDN; empty ⇒ presigned GET URLs
+
+TYPESENSE_HOST = env("TYPESENSE_HOST", "typesense")
+TYPESENSE_PORT = env("TYPESENSE_PORT", "8108")
+TYPESENSE_PROTOCOL = env("TYPESENSE_PROTOCOL", "http")
+TYPESENSE_API_KEY = env("TYPESENSE_API_KEY", "")
+
+
+def _origin(url):
+    p = urlsplit(url)
+    return f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else ""
+
+
+# The strict CSP (web/middleware.py) is 'self'-only; the media UI talks to R2 cross-origin, so
+# allow exactly those origins:
+#  - connect-src: the browser's presigned PUT/GET fetches hit the S3 API endpoint;
+#  - img-src: <img>/poster bytes load from the public r2.dev/CDN base (or presigned GETs off the
+#    S3 endpoint when no public base is configured).
+# Empty when R2 is unconfigured, so the policy stays maximally strict until it's set.
+CSP_CONNECT_SRC_EXTRA = [o for o in {_origin(R2_S3_API_ENDPOINT)} if o]
+CSP_IMG_SRC_EXTRA = [o for o in {_origin(R2_PUBLIC_BASE), _origin(R2_S3_API_ENDPOINT)} if o]
 
 # --- Staff impersonation (django-hijack; ADR 0010) ---
 # Superuser-only — platform staff only, never org admins. Explicit (also the library default).

@@ -49,20 +49,24 @@ class CSPMiddleware:
         # which 302s to the Keycloak end-session endpoint, so that origin must be allowed.
         form_action = " ".join(["'self'", *getattr(settings, "CSP_FORM_ACTION_EXTRA", [])])
         kc = getattr(settings, "CSP_FORM_ACTION_EXTRA", [])  # the Keycloak origin
+        # Extra origins the media UI needs (clip.cool): R2 for the presigned upload/download
+        # fetches (connect-src) and for serving image/poster bytes (img-src). Empty until R2 is set.
+        connect_extra = getattr(settings, "CSP_CONNECT_SRC_EXTRA", [])
+        img_extra = getattr(settings, "CSP_IMG_SRC_EXTRA", [])
         if relaxed:
             script_src = "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
             style_src = "style-src 'self' 'unsafe-inline'"
             # Swagger's OAuth2 token exchange fetches Keycloak's token endpoint from this page.
-            connect_src = " ".join(["connect-src 'self'", *kc])
+            connect_src = " ".join(["connect-src 'self'", *kc, *connect_extra])
         else:
             script_src = f"script-src 'self' 'nonce-{nonce}'"
             style_src = "style-src 'self'"
-            connect_src = "connect-src 'self'"
+            connect_src = " ".join(["connect-src 'self'", *connect_extra])
         return "; ".join([
             "default-src 'self'",
             script_src,
             style_src,
-            "img-src 'self' data:",
+            " ".join(["img-src 'self' data:", *img_extra]),
             "font-src 'self'",
             connect_src,
             "object-src 'none'",

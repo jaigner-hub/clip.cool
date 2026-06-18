@@ -88,12 +88,6 @@ class KeygripOIDCBackend(OIDCAuthenticationBackend):
 
         groups = [Group.objects.get_or_create(name=r)[0] for r in roles]
         user.groups.set(groups)
-
-        # Invariant: every user belongs to an org (ADR 0009 amendment). Idempotent — only acts
-        # for a user with no membership, so this also backfills pre-existing org-less users on
-        # their next login. Keycloak platform roles (above) are orthogonal to org membership.
-        from tenancy.services import ensure_personal_org
-        ensure_personal_org(user)
         return user
 
     def create_user(self, claims):

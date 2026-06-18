@@ -5,8 +5,10 @@ ENV PYTHONUNBUFFERED=1 \
     DJANGO_SETTINGS_MODULE=keygrip.settings.prod
 
 WORKDIR /app
+# curl: health/debug. tesseract-ocr: OCR of burned-in text on the `index` queue (clips.tasks).
+# ffmpeg/svt-av1 (the video transcode tier) come with the heavy-worker image later — not here.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl \
+ && apt-get install -y --no-install-recommends curl tesseract-ocr \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -1,6 +1,9 @@
 ---
 app_dir: /opt/keygrip/webapp   # platform install root stays /opt/keygrip (shared with the chat stack)
-app_hostname: clip.cool
+# Interim public hostname: the app serves on app.vent.dog (already fully wired in the `cloudflare`
+# role — LB across both boxes, tunnel ingress, /readyz monitor). The clip.cool apex is a later flip
+# (needs the clip.cool zone verified); see docs/migration-from-keygrip.md.
+app_hostname: app.vent.dog
 # Tailnet (Tailscale Serve) host:port the app is also reachable on — the break-glass path:
 # the ONLY host where the admin password login form is served (ADR 0002; /admin itself is public).
 # Must match the serve mapping in playbooks/serve.yml and the clip-web redirect URI in
@@ -29,3 +32,16 @@ app_otel_endpoint: "http://alloy:4317"
 # Sample EVERY request on the dev box — low traffic, and you want to see the call you just made
 # (10% sampling makes a handful of manual API calls vanish). Dial down per-env once prod has volume.
 app_otel_sample_rate: "1.0"
+
+# --- Cloudflare R2 object storage (docs/architecture.md) ---
+# ALL R2 config lives in stash under clip/web/* (AUTO mode → app .env): R2_ACCESS_KEY_ID,
+# R2_SECRET_ACCESS_KEY, R2_S3_API_ENDPOINT, R2_BUCKET_NAME, R2_API_TOKEN, and optional
+# R2_PUBLIC_BASE. Nothing R2 is templated here — see compose.yml.j2's x-app-env passthrough.
+
+# --- Typesense search (docs/architecture.md) ---
+# Single instance on vent.dog (playbooks/typesense.yml, hosts: primary). vent.dog's own app reaches
+# it by the edge-net name `typesense`; vent.dog2 overrides search_host to vent.dog's tailnet IP in
+# inventory.yml. The API key is a SECRET — it arrives via stash (clip/web/TYPESENSE_API_KEY).
+search_host: "typesense"
+search_port: "8108"
+search_protocol: "http"

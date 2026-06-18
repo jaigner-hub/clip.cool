@@ -44,8 +44,9 @@ class PasswordChangeRedirectTests(TestCase):
         # Discoverability is the point of the feature ("no way to change password... visibly
         # in the app") — the link must be in the account header for every signed-in user.
         user = User.objects.create_user("u@example.com", "u@example.com")
-        user.is_superuser = True  # superuser home renders without an org membership
         user.save()
         self.client.force_login(user)
-        resp = self.client.get(reverse("home"))
+        # `/` redirects to the search surface; follow it to the rendered app shell (which carries
+        # the account header on every signed-in page).
+        resp = self.client.get(reverse("home"), follow=True)
         self.assertContains(resp, reverse("account_password"))

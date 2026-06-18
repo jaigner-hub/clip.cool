@@ -1,0 +1,11 @@
+---
+# Typesense — typo-tolerant search engine for clip.cool (docs/architecture.md). Single instance
+# on vent.dog (playbooks/typesense.yml → hosts: primary): the index is a rebuildable projection of
+# Postgres (the source of truth), so it needs no HA. The app on BOTH boxes reaches it the same way
+# the other single-instance services are reached — vent.dog by the edge-net name `typesense`,
+# vent.dog2 over the tailnet (search_host override in inventory.yml).
+typesense_dir: /opt/keygrip/typesense
+typesense_image: "typesense/typesense:28.0"
+# Publish the API on THIS box's tailnet IP (like pg-exporter-app) so vent.dog2's app reaches it
+# cross-box; tailscale0 is already ufw-open between the boxes and the API is key-protected.
+typesense_bind: "{{ ansible_host }}:8108"

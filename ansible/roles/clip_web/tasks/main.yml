@@ -36,24 +36,26 @@
     group: root
     mode: "0644"
 
-# Secrets now come from stash (ADR 0018): the stash agent renders kg/web/* to
-# /run/keygrip/web.env (tmpfs) and we point compose's .env at it via a symlink, so
+# Secrets now come from stash (ADR 0018): the stash agent renders clip/web/* to
+# /run/clip/web.env (tmpfs) and we point compose's .env at it via a symlink, so
 # no plaintext secret persists on disk. (env.j2 is kept for break-glass rollback.)
+# NOTE: path + prefix renamed kg→clip with the rest of the app tier; the stash
+# CLUSTER must hold the app secrets under `clip/web/*` for the agent to render them.
 - name: Check the stash agent has rendered the secrets
   ansible.builtin.stat:
-    path: /run/keygrip/web.env
+    path: /run/clip/web.env
   register: _stash_web_env
 
 - name: Require the stash-rendered env before flipping the app to it
   ansible.builtin.assert:
     that: _stash_web_env.stat.exists
     fail_msg: >-
-      /run/keygrip/web.env is missing — run/start stash-agent first
+      /run/clip/web.env is missing — run/start stash-agent first
       (it is a role in this play; check `systemctl status stash-agent`).
 
 - name: Point app .env at the stash-rendered env (tmpfs; secrets via stash agent)
   ansible.builtin.file:
-    src: /run/keygrip/web.env
+    src: /run/clip/web.env
     dest: "{{ app_dir }}/.env"
     state: link
     force: true

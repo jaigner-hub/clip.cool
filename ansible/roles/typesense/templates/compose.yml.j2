@@ -1,0 +1,27 @@
+# Rendered by Ansible (roles/typesense). Secret (TYPESENSE_API_KEY) via .env (SOPS-sourced).
+# Single search node on vent.dog; the index is rebuildable from Postgres (docs/architecture.md).
+name: clip-typesense
+
+services:
+  typesense:
+    image: {{ typesense_image }}
+    restart: unless-stopped
+    # ${TYPESENSE_API_KEY} is interpolated by compose from the rendered .env in this dir.
+    command: >-
+      --data-dir /data
+      --api-key=${TYPESENSE_API_KEY:?}
+    volumes:
+      - tsdata:/data
+    # Publish on the box's tailnet IP for the 2nd app node; also join the shared edge net so
+    # vent.dog's own clip-web resolves it as `typesense:8108` (no tailnet hop).
+    ports:
+      - "{{ typesense_bind }}:8108"
+    networks: [edge]
+
+volumes:
+  tsdata:
+
+networks:
+  edge:
+    name: keygrip-edge
+    external: true
