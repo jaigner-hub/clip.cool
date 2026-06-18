@@ -33,6 +33,12 @@ DATABASES = {
         "PASSWORD": env("DB_PASSWORD", ""),
         "HOST": env("DB_HOST", "appdb"),
         "PORT": env("DB_PORT", "5432"),
+        # The long-lived Procrastinate worker can hold a connection the server later drops
+        # (PgBouncer/HAProxy restart, leader switchover). Health-check the connection on reuse so a
+        # dead one is detected + reconnected instead of erroring mid-query; recycle every 60s. Tasks
+        # also close_old_connections() at start (clips/tasks.py) to trigger the check per job.
+        "CONN_HEALTH_CHECKS": True,
+        "CONN_MAX_AGE": 60,
     }
 }
 
