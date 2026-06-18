@@ -355,6 +355,14 @@ def search_assets(user, q, *, limit=40):
     return [by_id[i] for i in ids if i in by_id]  # preserve relevance order
 
 
+def browse_assets(limit=30):
+    """A random sample of the public catalog for the no-query browse grid. order_by('?') is fine at
+    this scale; revisit if the catalog grows large."""
+    return list(
+        Asset.objects.filter(is_public=True, status=Asset.Status.READY).order_by("?")[:limit]
+    )
+
+
 def list_assets(user, *, limit=40):
     qs = Asset.objects.all() if getattr(user, "is_superuser", False) else Asset.objects.filter(owner=user)
     return list(qs[:limit])

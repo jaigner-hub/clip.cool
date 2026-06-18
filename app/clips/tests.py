@@ -331,22 +331,31 @@ class PublicSharePageTests(TestCase):
         self.user = User.objects.create_user("share@example.com", "share@example.com")
 
     @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
-    def test_public_clip_visible_without_login(self, mock_url):
-        # WHY: the share link must work for logged-out viewers (chat/social unfurls).
+    def test_canonical_page_visible_without_login_with_og(self, mock_url):
+        # WHY: the canonical clip.cool/<id> page must work for logged-out viewers AND carry OG meta
+        # so chat/social unfurls (it replaces the old /c/<id> share page).
         a = Asset.objects.create(owner=self.user, original_key="o.png", media_type=Asset.MediaType.IMAGE,
                                  status=Asset.Status.READY, is_public=True, title="Shared")
-        r = self.client.get(reverse("clip_public", args=[a.id]))   # no login
+        r = self.client.get(reverse("clips_asset", args=[a.id]))   # no login
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, 'property="og:title"')   # OG meta for unfurls
         self.assertContains(r, "Shared")
 
+    def test_old_c_path_301s_to_canonical(self):
+        # WHY: links already shared as /c/<id> must keep working (permanent redirect to /<id>).
+        a = Asset.objects.create(owner=self.user, original_key="o.png", media_type=Asset.MediaType.IMAGE,
+                                 status=Asset.Status.READY, is_public=True)
+        r = self.client.get(reverse("clip_public", args=[a.id]))
+        self.assertEqual(r.status_code, 301)
+        self.assertEqual(r["Location"], reverse("clips_asset", args=[a.id]))
+
     def test_private_clip_is_404(self):
         a = Asset.objects.create(owner=self.user, original_key="o.png", status=Asset.Status.READY, is_public=False)
-        self.assertEqual(self.client.get(reverse("clip_public", args=[a.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("clips_asset", args=[a.id])).status_code, 404)
 
     def test_unready_clip_is_404(self):
         a = Asset.objects.create(owner=self.user, original_key="o.png", status=Asset.Status.TRANSCODING, is_public=True)
-        self.assertEqual(self.client.get(reverse("clip_public", args=[a.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("clips_asset", args=[a.id])).status_code, 404)
 
 
 class PublicMp4LinkTests(TestCase):
@@ -426,3 +435,24 @@ class PublicBrowseTests(TestCase):
         self.client.force_login(u)
         r = self.client.get(reverse("clips_asset", args=[a.id]))
         self.assertContains(r, "Regenerate AI labels")            # owner sees controls
+
+
+class BrowseTests(TestCase):
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_browse_grid_logged_out_public_only(self, mock_url):
+        u = User.objects.create_user("b@example.com", "b@example.com")
+        Asset.objects.create(owner=u, original_key="o.png", media_type=Asset.MediaType.IMAGE,
+                             status=Asset.Status.READY, is_public=True, title="PubBrowse")
+        Asset.objects.create(owner=u, original_key="p.png", media_type=Asset.MediaType.IMAGE,
+                             status=Asset.Status.READY, is_public=False, title="PrivBrowse")
+        r = self.client.get(reverse("clips_browse"))   # no login
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "PubBrowse")
+        self.assertNotContains(r, "PrivBrowse")        # private never surfaced
+
+    def test_browse_assets_excludes_private_and_unready(self):
+        u = User.objects.create_user("b2@example.com", "b2@example.com")
+        Asset.objects.create(owner=u, original_key="o.png", status=Asset.Status.READY, is_public=True)
+        Asset.objects.create(owner=u, original_key="o2.png", status=Asset.Status.TRANSCODING, is_public=True)
+        Asset.objects.create(owner=u, original_key="o3.png", status=Asset.Status.READY, is_public=False)
+        self.assertEqual(len(services.browse_assets()), 1)

@@ -1,0 +1,15 @@
+{# Clip grid — shared by search results and browse. Expects `items` (serialized assets). #}
+<ul class="clip-grid">
+  {% for r in items %}
+  <li class="clip-card">
+    <a href="{% url 'clips_asset' r.id %}" title="{{ r.description }}">
+      <img class="clip-thumb" src="{{ r.poster_url }}" alt="{{ r.description|default:r.title|default:'clip' }}" loading="lazy">
+    </a>
+    <div class="clip-meta">
+      {% if r.title %}<span class="clip-title">{{ r.title }}</span>{% endif %}
+      {% if r.status != 'ready' %}<span class="clip-status">{{ r.status }}</span>{% endif %}
+      {% for t in r.tags %}<span class="clip-tag">{{ t }}</span>{% endfor %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>

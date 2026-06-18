@@ -1,20 +1,30 @@
 from django.urls import path
+from django.views.generic import RedirectView
 
 from . import views
 
 urlpatterns = [
-    path("c/<uuid:asset_id>/", views.public_clip, name="clip_public"),   # short public share URL
-    path("c/<uuid:asset_id>.mp4", views.public_clip_mp4, name="clip_public_mp4"),  # direct video
-    path("c/<uuid:asset_id>.gif", views.public_clip_gif, name="clip_public_gif"),  # optimized GIF (chat autoplay)
+    # Canonical root URLs for a clip (short + shareable). One page per clip: humans get the full
+    # page, chat/social unfurl off its OG/Twitter meta. .gif/.mp4 are direct-rendition links.
+    path("<uuid:asset_id>", views.asset_detail, name="clips_asset"),
+    path("<uuid:asset_id>.gif", views.public_clip_gif, name="clip_public_gif"),
+    path("<uuid:asset_id>.mp4", views.public_clip_mp4, name="clip_public_mp4"),
+
+    # 301 from the old paths so links already shared keep working.
+    path("c/<uuid:asset_id>/", RedirectView.as_view(pattern_name="clips_asset", permanent=True), name="clip_public"),
+    path("c/<uuid:asset_id>.gif", RedirectView.as_view(pattern_name="clip_public_gif", permanent=True)),
+    path("c/<uuid:asset_id>.mp4", RedirectView.as_view(pattern_name="clip_public_mp4", permanent=True)),
+    path("clips/asset/<uuid:asset_id>/", RedirectView.as_view(pattern_name="clips_asset", permanent=True)),
+
     path("clips/", views.library, name="clips_library"),
     path("clips/upload/", views.upload_page, name="clips_upload"),
     path("clips/upload/presign", views.presign, name="clips_presign"),
     path("clips/upload/finalize", views.finalize, name="clips_finalize"),
     path("clips/search/", views.search_page, name="clips_search"),
+    path("clips/browse/", views.browse_page, name="clips_browse"),
     path("clips/create/", views.create_gallery, name="clips_create"),
     path("clips/create/<uuid:template_id>/", views.builder, name="clips_builder"),
     path("clips/template/<uuid:template_id>/raw", views.template_image, name="clips_template_image"),
-    path("clips/asset/<uuid:asset_id>/", views.asset_detail, name="clips_asset"),
     path("clips/asset/<uuid:asset_id>/edit/", views.asset_edit, name="clips_edit"),
     path("clips/asset/<uuid:asset_id>/regenerate/", views.asset_regenerate, name="clips_regenerate"),
     path("clips/asset/<uuid:asset_id>/caption/", views.caption_builder, name="clips_caption"),

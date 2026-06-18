@@ -1,0 +1,18 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
+{% block title %}Browse · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">Browse clips</h1>
+  <a class="kg-acct-link" href="{% url 'clips_search' %}">Search →</a>
+</div>
+{% if clips %}
+  {% include "clips/_grid.html" with items=clips %}
+{% else %}
+  <div class="kg-empty">
+    <p class="kg-empty-title">No clips yet</p>
+    <p class="kg-muted">Public clips will show up here.</p>
+  </div>
+{% endif %}
+{% endblock %}

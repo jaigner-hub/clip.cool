@@ -25,8 +25,9 @@ def library(request):
 
 
 def asset_detail(request, asset_id):
-    """One clip + its metadata. Public (ready) clips are viewable by anyone (logged out included);
-    private/unready clips are owner/superuser only. Owner-only controls render when can_edit."""
+    """Canonical clip page (clip.cool/<id>). Public+ready ⇒ anyone (logged out included) — carries
+    OG/Twitter meta so the link unfurls (and autoplays) in chat/social; private/unready ⇒
+    owner/superuser only. Owner-only controls render when can_edit."""
     asset = services.get_public_asset(asset_id)   # public + ready ⇒ anyone
     if asset is None and request.user.is_authenticated:
         asset = services.get_asset_for(request.user, asset_id)   # else owner/superuser (incl. private/unready)
@@ -36,9 +37,10 @@ def asset_detail(request, asset_id):
     can_edit = u.is_authenticated and (u.is_superuser or asset.owner_id == u.id)
     a = services.serialize(asset)
     sources = services.video_sources(asset) if asset.media_type == Asset.MediaType.VIDEO else []
+    mp4_url = next((s["url"] for s in sources if s["kind"] == "h264"), a.get("url"))
     return render(request, "clips/detail.html", {
         "active_page": "clips_library", "asset": asset, "a": a, "sources": sources,
-        "can_edit": can_edit,
+        "can_edit": can_edit, "mp4_url": mp4_url, "page_url": request.build_absolute_uri(),
     })
 
 
@@ -69,21 +71,6 @@ def asset_regenerate(request, asset_id):
     if services.regenerate_asset(request.user, asset_id) is None:
         raise Http404("Clip not found.")
     return redirect("clips_asset", asset_id=asset_id)
-
-
-def public_clip(request, asset_id):
-    """Public, no-login share page for a public clip — plays the looping video, carries Open
-    Graph/Twitter meta so the link unfurls (and autoplays) in chat/social. Private/missing → 404."""
-    asset = services.get_public_asset(asset_id)
-    if asset is None:
-        raise Http404("Clip not found.")
-    a = services.serialize(asset)
-    sources = services.video_sources(asset) if asset.media_type == Asset.MediaType.VIDEO else []
-    mp4_url = next((s["url"] for s in sources if s["kind"] == "h264"), a.get("url"))
-    return render(request, "clips/public.html", {
-        "a": a, "asset": asset, "sources": sources, "mp4_url": mp4_url,
-        "page_url": request.build_absolute_uri(),
-    })
 
 
 def public_clip_mp4(request, asset_id):
@@ -218,6 +205,12 @@ def search_page(request):
     q = (request.GET.get("q") or "").strip()
     results = [services.serialize(a) for a in services.search_assets(request.user, q)] if q else []
     return render(request, "clips/search.html", {"active_page": "clips", "q": q, "results": results})
+
+
+def browse_page(request):
+    """Public no-query discovery grid: a random sample of the public catalog."""
+    clips = [services.serialize(a) for a in services.browse_assets()]
+    return render(request, "clips/browse.html", {"active_page": "clips_browse", "clips": clips})
 
 
 def _json(request):
