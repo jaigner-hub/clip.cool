@@ -193,6 +193,13 @@ TYPESENSE_PORT = env("TYPESENSE_PORT", "8108")
 TYPESENSE_PROTOCOL = env("TYPESENSE_PROTOCOL", "http")
 TYPESENSE_API_KEY = env("TYPESENSE_API_KEY", "")
 
+# Vision auto-describe (clips.llm → OpenRouter, OpenAI-compatible). Key from stash
+# (clip/web/OPENROUTER_API_KEY); empty ⇒ auto-describe is skipped, the rest of ingest still runs.
+OPENROUTER_API_KEY = env("OPENROUTER_API_KEY", "")
+OPENROUTER_REFERER = env("OPENROUTER_REFERER", "https://app.vent.dog")  # OpenRouter attribution
+OPENROUTER_TITLE = env("OPENROUTER_TITLE", "clip.cool")
+CLIPS_VISION_MODEL = env("CLIPS_VISION_MODEL", "anthropic/claude-sonnet-4.6")
+
 
 def _origin(url):
     p = urlsplit(url)

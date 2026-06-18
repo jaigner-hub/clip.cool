@@ -18,3 +18,8 @@ def process_asset(asset_id: str) -> None:
 @app.task(queue="index")
 def index_asset(asset_id: str) -> None:
     services.index_asset(asset_id)
+
+
+@app.task(queue="index")
+def autodescribe_asset(asset_id: str) -> None:
+    services.autodescribe_asset(asset_id)

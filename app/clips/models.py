@@ -39,6 +39,7 @@ class Asset(models.Model):
 
     # Searchable surface (mirrored into Typesense).
     title = models.CharField(max_length=255, blank=True)
+    description = models.TextField(blank=True)   # AI vision caption (clips.llm), searchable
     ocr_text = models.TextField(blank=True)
     tags = models.JSONField(default=list, blank=True)
 

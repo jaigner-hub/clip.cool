@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from clips import services
+from clips.llm import LLMError
 from clips.models import Asset
 
 User = get_user_model()
@@ -80,3 +81,54 @@ class SearchScopingTests(TestCase):
         mock_search.query.return_value = []
         services.search_assets(self.user, "x")
         self.assertIsNone(mock_search.query.call_args.kwargs["owner_id"])
+
+
+class AutodescribeTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("u@example.com", "u@example.com")
+
+    def _asset(self, **kw):
+        kw.setdefault("original_key", "originals/x.gif")
+        kw.setdefault("poster_key", "posters/x.webp")
+        kw.setdefault("status", Asset.Status.READY)
+        return Asset.objects.create(owner=self.user, **kw)
+
+    @patch("clips.llm.describe_image")
+    @patch("clips.services.storage.download_bytes", return_value=b"imgbytes")
+    @patch("clips.services.search")
+    def test_merges_without_clobbering_human_title(self, mock_search, mock_dl, mock_describe):
+        # WHY: vision metadata augments — it sets description, merges/dedupes tags, but a title the
+        # user typed is authoritative and must survive.
+        mock_describe.return_value = {
+            "title": "AI Title", "description": "a dwarf in armor",
+            "tags": ["dwarf", "reaction", "dwarf"],
+        }
+        a = self._asset(title="My Title", tags=["mine"])
+        services.autodescribe_asset(str(a.id))
+        a.refresh_from_db()
+        self.assertEqual(a.title, "My Title")              # not clobbered
+        self.assertEqual(a.description, "a dwarf in armor")
+        self.assertEqual(a.tags, ["mine", "dwarf", "reaction"])  # merged + deduped
+        mock_search.upsert.assert_called()
+
+    @patch("clips.llm.describe_image")
+    @patch("clips.services.storage.download_bytes", return_value=b"imgbytes")
+    @patch("clips.services.search")
+    def test_sets_title_when_blank(self, mock_search, mock_dl, mock_describe):
+        mock_describe.return_value = {"title": "Auto Label", "description": "", "tags": []}
+        a = self._asset(title="")
+        services.autodescribe_asset(str(a.id))
+        a.refresh_from_db()
+        self.assertEqual(a.title, "Auto Label")
+
+    @patch("clips.llm.describe_image", side_effect=LLMError("no key"))
+    @patch("clips.services.storage.download_bytes", return_value=b"imgbytes")
+    @patch("clips.services.search")
+    def test_llm_failure_leaves_asset_untouched(self, mock_search, mock_dl, mock_describe):
+        # WHY: auto-describe is best-effort; a missing key or API error must never break the asset.
+        a = self._asset(title="", tags=["mine"])
+        services.autodescribe_asset(str(a.id))  # must not raise
+        a.refresh_from_db()
+        self.assertEqual(a.title, "")
+        self.assertEqual(a.tags, ["mine"])
+        mock_search.upsert.assert_not_called()

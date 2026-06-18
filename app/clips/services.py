@@ -14,6 +14,8 @@ import logging
 import mimetypes
 import uuid
 
+from django.conf import settings
+
 from . import search, storage
 from .models import Asset
 
@@ -87,9 +89,56 @@ def process_asset(asset_id):
         asset.save()
         search.upsert(asset)
         logger.info("clips: processed asset %s (ocr=%d chars)", asset.id, len(asset.ocr_text))
+        # Hand off the (optional) vision auto-describe so a slow/failed LLM call never blocks the
+        # asset becoming usable. Skip enqueuing entirely when no key is configured.
+        if getattr(settings, "OPENROUTER_API_KEY", ""):
+            from .tasks import autodescribe_asset
+            autodescribe_asset.defer(asset_id=str(asset.id))
     except Exception:
         logger.error("clips.process_asset failed for %s", asset_id, exc_info=True)
         Asset.objects.filter(pk=asset_id).update(status=Asset.Status.FAILED)
+
+
+def autodescribe_asset(asset_id):
+    """Vision auto-labeling via OpenRouter (clips.llm): fills title (only if unset) + description,
+    and merges extra tags. Best-effort — any failure leaves the asset's OCR/tags untouched."""
+    asset = Asset.objects.filter(pk=asset_id).first()
+    if asset is None:
+        return
+    from . import llm  # lazy: keeps httpx off the module import path
+
+    key = asset.poster_key or asset.original_key
+    ctype = "image/webp" if asset.poster_key else (asset.mime or "image/png")
+    try:
+        data = storage.download_bytes(key)
+        meta = llm.describe_image(data, ctype)
+    except (storage.StorageNotConfigured, llm.LLMError):
+        logger.warning("clips.autodescribe: skipped for %s", asset_id, exc_info=True)
+        return
+    except Exception:
+        logger.warning("clips.autodescribe: unexpected error for %s", asset_id, exc_info=True)
+        return
+    changed = False
+    if meta["title"] and not asset.title:        # never clobber a human-given title
+        asset.title = meta["title"]
+        changed = True
+    if meta["description"]:
+        asset.description = meta["description"]
+        changed = True
+    if meta["tags"]:
+        existing = {t.lower() for t in (asset.tags or [])}
+        merged = list(asset.tags or [])
+        for t in meta["tags"]:
+            if t.lower() not in existing:
+                merged.append(t)
+                existing.add(t.lower())
+        if merged != (asset.tags or []):
+            asset.tags = merged
+            changed = True
+    if changed:
+        asset.save(update_fields=["title", "description", "tags", "updated_at"])
+        search.upsert(asset)
+        logger.info("clips: autodescribed %s (tags=%d)", asset.id, len(asset.tags or []))
 
 
 def _derive_image(asset, data):
@@ -170,6 +219,7 @@ def serialize(asset):
     return {
         "id": str(asset.id),
         "title": asset.title or "",
+        "description": asset.description or "",
         "status": asset.status,
         "mime": asset.mime or "",
         "width": asset.width,

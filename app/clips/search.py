@@ -19,6 +19,7 @@ _SCHEMA = {
     "name": COLLECTION,
     "fields": [
         {"name": "title", "type": "string"},
+        {"name": "description", "type": "string"},   # AI vision caption
         {"name": "ocr_text", "type": "string"},
         {"name": "tags", "type": "string[]", "facet": True},
         {"name": "mime", "type": "string", "facet": True, "optional": True},
@@ -55,6 +56,19 @@ def ensure_collection():
         client.collections.create(_SCHEMA)
 
 
+def recreate_collection():
+    """Drop + recreate the collection to pick up a schema change (e.g. a new field). The index is
+    a rebuildable projection of Postgres, so callers follow this with services.reindex_all()."""
+    import typesense
+
+    client = _client()
+    try:
+        client.collections[COLLECTION].delete()
+    except typesense.exceptions.ObjectNotFound:
+        pass
+    client.collections.create(_SCHEMA)
+
+
 def upsert(asset):
     ensure_collection()
     _client().collections[COLLECTION].documents.upsert(_doc(asset))
@@ -74,7 +88,7 @@ def query(q, *, owner_id=None, limit=40):
     ensure_collection()
     params = {
         "q": q or "*",
-        "query_by": "title,ocr_text,tags",
+        "query_by": "title,description,ocr_text,tags",
         "per_page": min(max(limit, 1), 250),
         "sort_by": "_text_match:desc,created_at:desc",
     }
@@ -88,6 +102,7 @@ def _doc(asset):
     return {
         "id": str(asset.id),
         "title": asset.title or "",
+        "description": asset.description or "",
         "ocr_text": asset.ocr_text or "",
         "tags": list(asset.tags or []),
         "mime": asset.mime or "",

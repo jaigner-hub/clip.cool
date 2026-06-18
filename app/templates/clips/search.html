@@ -19,8 +19,8 @@
   <ul class="clip-grid">
     {% for r in results %}
     <li class="clip-card">
-      <a href="{{ r.url }}" target="_blank" rel="noopener">
-        <img class="clip-thumb" src="{{ r.poster_url }}" alt="{{ r.title|default:'clip' }}" loading="lazy">
+      <a href="{{ r.url }}" target="_blank" rel="noopener" title="{{ r.description }}">
+        <img class="clip-thumb" src="{{ r.poster_url }}" alt="{{ r.description|default:r.title|default:'clip' }}" loading="lazy">
       </a>
       <div class="clip-meta">
         {% if r.title %}<span class="clip-title">{{ r.title }}</span>{% endif %}
