@@ -56,19 +56,22 @@
 
     {% if a.is_public %}
     <div class="clip-share">
-      <label for="share-url">Share link</label>
-      <div class="clip-share-row">
-        <input type="text" id="share-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public' asset.id %}">
-        <button type="button" class="kg-btn kg-btn-sm" data-copy="#share-url">Copy</button>
-        <a class="kg-btn kg-btn-sm" href="{% url 'clip_public' asset.id %}" target="_blank" rel="noopener">Open ↗</a>
+      <div class="clip-share-item">
+        <label for="share-url">Page link <span class="kg-muted">— preview/play button in chat</span></label>
+        <div class="clip-share-row">
+          <input type="text" id="share-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public' asset.id %}">
+          <button type="button" class="kg-btn kg-btn-sm" data-copy="#share-url">Copy</button>
+          <a class="kg-btn kg-btn-sm" href="{% url 'clip_public' asset.id %}" target="_blank" rel="noopener">Open ↗</a>
+        </div>
       </div>
-      <p class="kg-muted">Page link — shows a preview/play button in chat.</p>
       {% if a.media_type == 'video' %}
-      <div class="clip-share-row">
-        <input type="text" id="gif-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public_gif' asset.id %}">
-        <button type="button" class="kg-btn kg-btn-sm" data-copy="#gif-url">Copy</button>
+      <div class="clip-share-item">
+        <label for="gif-url">GIF link <span class="kg-muted">— autoplays + loops in Discord/Slack</span></label>
+        <div class="clip-share-row">
+          <input type="text" id="gif-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public_gif' asset.id %}">
+          <button type="button" class="kg-btn kg-btn-sm" data-copy="#gif-url">Copy</button>
+        </div>
       </div>
-      <p class="kg-muted">GIF link — autoplays + loops inline in Discord/Slack.</p>
       {% endif %}
     </div>
     {% else %}

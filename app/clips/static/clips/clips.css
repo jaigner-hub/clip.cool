@@ -190,9 +190,11 @@
 .pub-media img, .pub-media video { max-width: 100%; height: auto; display: block; }
 .pub-title { font-size: 20px; margin: 16px 0 12px; color: #1f2937; }
 
-/* Share link row on the detail page. */
+/* Share links on the detail page — each link labelled directly above its box. */
 .clip-share { margin-top: 16px; }
-.clip-share > label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.clip-share-item { margin-bottom: 12px; }
+.clip-share-item > label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.clip-share-item > label .kg-muted { font-weight: 400; }
 .clip-share-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .clip-share-row input { flex: 1; min-width: 180px; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; background: #f8fafc; }
 
