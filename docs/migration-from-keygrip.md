@@ -94,17 +94,26 @@ wait on the `clip.cool` apex DNS. This unblocks the whole edge end-to-end; the a
   and machine-token (client-credentials) API auth are gone (**API auth is user-token-only** now), and
   `web/auth.py` no longer auto-provisions a personal org. The Django package stays named `keygrip`.
 
+## Also landed since
+
+- **clip.cool apex is live.** The `cloudflare` role went multi-zone: `clip.cool` added to both
+  tunnels' ingress + a 3rd Load Balancer "clip.cool" in the clip.cool zone on the **same shared
+  `keygrip` pool** (HA across both boxes). `clip_web` `app_hostname=clip.cool` with `app.vent.dog`
+  kept as a transitional alt host; `clip-web`/`api-docs` realm redirect URIs gained `clip.cool`.
+  Verified: clip.cool /readyz ok, public share + GIF links work, id.vent.dog/chat untouched.
+- **Video pipeline (Phase 2a/2b):** GIF/video → ffmpeg AV1/VP9/H.264 + poster + optimized GIF
+  (transcode queue, in the shared worker); `<video>` served AV1→VP9→H.264; overlay captioning
+  (editable layers + transparent text PNG, re-editable); public `/c/<id>` share page + `/c/<id>.gif`
+  / `.mp4` links. See `docs/phase2-video-captioning.md`.
+
 ## Remaining (not done yet)
 
-1. **Cloudflare apex cutover — `clip.cool`.** The later flip once the zone verifies: add the
-   `clip.cool` zone, point `app_hostname` + the realm redirect URIs + `cf_zone`/ingress/LB/monitor +
-   the `observability` uptime check + `drain.sh`'s `Host:` header from `app.vent.dog` → `clip.cool`
-   (apex proxied-CNAME / flattening + a CF Access app). The app works on `app.vent.dog` until then.
-2. **Video pipeline** (architecture.md): ffmpeg/`svt-av1` transcode tier + the dedicated heavy-worker
-   image, `<video>` renditions (AV1→VP9→H.264), and perceptual `pHash` dedup. The current slice is
-   images only (exact `sha256` collapse is stored, not yet enforced).
-3. **R2 bucket provisioning** — create `clip-media` + the S3 token, set CORS, optionally a custom CDN
-   domain (needs the `clip.cool` zone) — a Cloudflare-dashboard step.
+1. **Drop `app.vent.dog`** (clip.cool is live, dual-served): remove it from `clip_web` alt-hosts,
+   realm redirect URIs, `cf_lb_hostnames`/ingress; point the `observability` uptime check +
+   `drain.sh` `Host:` header at clip.cool; ramp HSTS on the clip.cool zone.
+2. **Video tail:** dedicated heavy-worker tier for AV1, on-demand caption burn-in for downloads,
+   captioned grid posters, perceptual `pHash` dedup, prune originals.
+3. **Snipper integration (2c)** — `clip-snipper` device-flow client + pushed captures.
 4. **Cosmetic doc refs** to `keygrip_web` remain in comments (`postgres_ha` README, a few
    playbook/inventory comments, prometheus.yml, observability alert-group names). Non-blocking.
 5. **CI / docs** — `.github/` (CI, dependabot), `.githooks/`, ADRs — a follow-up pass.
