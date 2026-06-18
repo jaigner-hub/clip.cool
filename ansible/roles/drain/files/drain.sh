@@ -101,6 +101,18 @@ prepare_for_reboot() {
 # etcd/docker may be tearing down, so the quorum check is unreliable). Real gating lives in `check`.
 drain() { prepare_for_reboot; }
 
+# Deploy drain: pull THIS box out of the LB only — NO Postgres switchover (an app deploy doesn't
+# touch the DB). Pair with `undrain` (waits for local /readyz, re-enables). Used by the rolling
+# clip-web deploy so one box keeps serving while the other recreates. Best-effort, never aborts.
+lb_out() {
+  if set_enabled "${MY_ORIGIN}" false; then
+    log "LB-OUT: ${MY_ORIGIN} disabled in pool ${CF_POOL_NAME}"
+  else
+    log "WARN: could not disable ${MY_ORIGIN} (CF unreachable?) — skipping (no rolling guarantee)"
+  fi
+  sleep 3   # let CF stop routing here + in-flight requests finish
+}
+
 # Can the cluster safely lose THIS node right now? (all 3 etcd members healthy + the peer up.)
 reboot_safe() { etcd_all_healthy && other_ready; }
 
@@ -134,9 +146,10 @@ undrain() {
 
 case "${1:-}" in
   drain)          drain ;;
+  lb-out)         lb_out ;;
   undrain)        undrain ;;
   safe-reboot)    safe_reboot ;;
   reboot-if-safe) reboot_if_safe ;;
   check)          reboot_safe && log "SAFE: 3/3 etcd healthy + peer up — ok to reboot this node" ;;
-  *) echo "usage: $0 {drain|undrain|safe-reboot|reboot-if-safe|check}"; exit 2 ;;
+  *) echo "usage: $0 {drain|lb-out|undrain|safe-reboot|reboot-if-safe|check}"; exit 2 ;;
 esac

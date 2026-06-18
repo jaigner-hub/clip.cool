@@ -18,6 +18,11 @@ keycloak_issuer: "https://id.vent.dog/realms/keygrip"
 keycloak_internal_base: "http://host.docker.internal:8080"
 app_db_name: clip
 app_db_user: clip
+# Zero-downtime rolling deploy: drain each box from the CF LB before recreating it (clip-web.yml
+# runs serial: 1). Reuses the drain helper installed by the `drain` role. Set false to fall back to
+# the old in-place recreate (e.g. if the LB isn't up).
+clip_web_rolling: true
+clip_web_drain_script: /opt/keygrip/drain/drain.sh
 app_postgres_image: "postgres:16-alpine"
 postgres_exporter_image: "quay.io/prometheuscommunity/postgres-exporter:v0.16.0"
 # Procrastinate worker replicas (ADR 0008). >1 proves multiple workers coordinate via Postgres

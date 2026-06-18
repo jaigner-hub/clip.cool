@@ -6,6 +6,9 @@
 - name: Clip web app (Django)
   hosts: dev
   become: true
+  # serial: 1 = roll one box at a time, so the CF LB always has the peer serving while a box drains +
+  # recreates (clip_web drains/undrains around the recreate → zero-downtime, no 502s). ADR 0016.
+  serial: 1
   roles:
     - stash_agent   # renders secrets to /run/clip/web.env (tmpfs) before the app needs them
     - clip_web

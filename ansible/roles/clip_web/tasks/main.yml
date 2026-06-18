@@ -66,6 +66,22 @@
   changed_when: _edge_net.rc == 0
   failed_when: _edge_net.rc != 0 and 'already exists' not in _edge_net.stderr
 
+# --- Zero-downtime rolling deploy (clip-web.yml runs serial: 1) ---
+# With the play serialized to one box at a time, drain THIS box from the CF LB before recreating its
+# containers (so the peer serves every request during the recreate gap — no 502s), then re-add it
+# once /readyz is green. drain.sh `lb-out` toggles the origin off immediately (no 60s monitor lag)
+# and does NOT switch over Postgres (an app deploy doesn't touch the DB). No-op if drain isn't
+# installed (degrades to the old in-place recreate).
+- name: Check for the drain helper
+  ansible.builtin.stat:
+    path: "{{ clip_web_drain_script }}"
+  register: _drain_script
+
+- name: Drain this box from the load balancer
+  ansible.builtin.command: "{{ clip_web_drain_script }} lb-out"
+  changed_when: true
+  when: clip_web_rolling | bool and _drain_script.stat.exists
+
 - name: Build + bring up the app stack
   community.docker.docker_compose_v2:
     project_src: "{{ app_dir }}"
@@ -85,3 +101,8 @@
   ansible.builtin.command:
     cmd: docker compose -f {{ app_dir }}/compose.yml restart worker
   changed_when: true
+
+- name: Re-add this box to the load balancer (waits for local /readyz, then enables the origin)
+  ansible.builtin.command: "{{ clip_web_drain_script }} undrain"
+  changed_when: true
+  when: clip_web_rolling | bool and _drain_script.stat.exists
