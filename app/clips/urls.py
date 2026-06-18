@@ -12,6 +12,7 @@ urlpatterns = [
     path("<uuid:asset_id>", views.asset_detail, name="clips_asset"),
     path("<uuid:asset_id>.gif", views.public_clip_gif, name="clip_public_gif"),
     path("<uuid:asset_id>.mp4", views.public_clip_mp4, name="clip_public_mp4"),
+    path("<uuid:asset_id>/download", views.clip_download, name="clip_download"),
 
     # 301 from the old paths so links already shared keep working.
     path("c/<uuid:asset_id>/", RedirectView.as_view(pattern_name="clips_asset", permanent=True), name="clip_public"),

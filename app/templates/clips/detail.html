@@ -71,6 +71,7 @@
       </form>
       {% endif %}
       {# Original source file — visible to anyone who can view the clip. #}
+      <a class="kg-btn kg-btn-sm" href="{% url 'clip_download' asset.id %}">Download ↓</a>
       <a class="kg-acct-link" href="{{ a.url }}" target="_blank" rel="noopener">Original file ↗</a>
     </div>
 

@@ -469,3 +469,21 @@ class RootSearchTests(TestCase):
         r = self.client.get("/clips/search/?q=gollum")
         self.assertEqual(r.status_code, 301)
         self.assertEqual(r["Location"], "/?q=gollum")
+
+
+class DownloadLinkTests(TestCase):
+    @patch("clips.services.storage.presign_get", return_value="https://r2/dl?response-content-disposition=attachment")
+    def test_download_redirects_to_attachment_presigned_url(self, mock_presign):
+        u = User.objects.create_user("d@example.com", "d@example.com")
+        a = Asset.objects.create(owner=u, original_key="originals/x.gif", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, is_public=True, title="My Clip")
+        r = self.client.get(reverse("clip_download", args=[a.id]))   # no login (public)
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "https://r2/dl?response-content-disposition=attachment")
+        # WHY: forced filename is the clip title + original extension (sanitized), for a sensible save.
+        self.assertEqual(mock_presign.call_args.kwargs["filename"], "My Clip.gif")
+
+    def test_download_private_404_logged_out(self):
+        u = User.objects.create_user("d2@example.com", "d2@example.com")
+        a = Asset.objects.create(owner=u, original_key="originals/x.gif", status=Asset.Status.READY, is_public=False)
+        self.assertEqual(self.client.get(reverse("clip_download", args=[a.id])).status_code, 404)

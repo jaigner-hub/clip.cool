@@ -48,12 +48,14 @@ def presign_put(key, content_type, expires=3600):
     )
 
 
-def presign_get(key, expires=3600):
-    return _client().generate_presigned_url(
-        "get_object",
-        Params={"Bucket": settings.R2_BUCKET_NAME, "Key": key},
-        ExpiresIn=expires,
-    )
+def presign_get(key, expires=3600, *, filename=None):
+    """Presigned GET. With `filename`, forces a download (Content-Disposition: attachment, named
+    that) — needed to *save* a cross-origin R2 object, since the HTML `download` attr is ignored
+    across origins."""
+    params = {"Bucket": settings.R2_BUCKET_NAME, "Key": key}
+    if filename:
+        params["ResponseContentDisposition"] = 'attachment; filename="%s"' % filename
+    return _client().generate_presigned_url("get_object", Params=params, ExpiresIn=expires)
 
 
 def public_url(key):

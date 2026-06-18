@@ -177,6 +177,17 @@ def rendition_url(asset, kind):
     return storage.public_url(r.r2_key) if r else ""
 
 
+def download_url(asset):
+    """Presigned GET that force-downloads the ORIGINAL file, named for the clip — so 'save' works
+    cross-origin (e.g. to re-send the GIF via Signal)."""
+    import os
+
+    ext = os.path.splitext(asset.original_key or "")[1]
+    base = (asset.title or "").strip() or str(asset.id)
+    safe = "".join(c if (c.isalnum() or c in " -_") else "" for c in base).strip() or str(asset.id)
+    return storage.presign_get(asset.original_key, filename="%s%s" % (safe, ext))
+
+
 def video_sources(asset):
     """Ordered <video> sources (AV1 → VP9 → H.264) for a video asset. Queries renditions, so call
     only on the detail page, not for every search/library card."""

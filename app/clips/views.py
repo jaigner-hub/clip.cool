@@ -98,6 +98,17 @@ def public_clip_gif(request, asset_id):
     return redirect(url)
 
 
+def clip_download(request, asset_id):
+    """Force-download the original file (Content-Disposition: attachment) — for saving the GIF to
+    re-send via Signal etc. Public for public clips; owner/superuser for private/unready."""
+    asset = services.get_public_asset(asset_id)
+    if asset is None and request.user.is_authenticated:
+        asset = services.get_asset_for(request.user, asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    return redirect(services.download_url(asset))
+
+
 @login_required
 def caption_builder(request, asset_id):
     """Caption an existing clip (overlay mode): add text over the video/image; saves editable
