@@ -12,3 +12,35 @@
   roles:
     - stash_agent   # renders secrets to /run/clip/web.env (tmpfs) before the app needs them
     - clip_web
+
+# Runs ONCE after the rolling play above finishes (both boxes updated). Content-hashed static + a
+# rolling deploy + a CDN can briefly cache a 404 for a new asset hash the not-yet-updated box lacks.
+# Purging once both boxes are current makes the next request re-fetch the (now present) asset.
+- name: Purge Cloudflare cache (clip.cool) after the rolling deploy
+  hosts: dev
+  gather_facts: false
+  tasks:
+    - name: Resolve the clip.cool zone id
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/zones?name=clip.cool"
+        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
+      delegate_to: localhost
+      run_once: true
+      register: _clip_zone
+      no_log: true
+      when: clip_web_purge_cache | bool
+
+    - name: Purge the clip.cool zone cache (purge_everything — the zone caches little but immutable /static/)
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/zones/{{ _clip_zone.json.result[0].id }}/purge_cache"
+        method: POST
+        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
+        body_format: json
+        body: { purge_everything: true }
+      delegate_to: localhost
+      run_once: true
+      no_log: true
+      changed_when: true
+      when:
+        - clip_web_purge_cache | bool
+        - _clip_zone.json.result | length > 0

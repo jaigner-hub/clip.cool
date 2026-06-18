@@ -23,6 +23,9 @@ app_db_user: clip
 # the old in-place recreate (e.g. if the LB isn't up).
 clip_web_rolling: true
 clip_web_drain_script: /opt/keygrip/drain/drain.sh
+# Purge the clip.cool CF cache after the rolling deploy (clears any 404 cached mid-roll for a new
+# content-hashed static asset). Needs the API token to carry Cache Purge. Set false to skip.
+clip_web_purge_cache: true
 app_postgres_image: "postgres:16-alpine"
 postgres_exporter_image: "quay.io/prometheuscommunity/postgres-exporter:v0.16.0"
 # Procrastinate worker replicas (ADR 0008). >1 proves multiple workers coordinate via Postgres
