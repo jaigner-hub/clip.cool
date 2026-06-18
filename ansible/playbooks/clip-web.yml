@@ -28,7 +28,7 @@
       run_once: true
       register: _clip_zone
       no_log: true
-      when: clip_web_purge_cache | bool
+      when: clip_web_purge_cache | default(true) | bool
 
     - name: Purge the clip.cool zone cache (purge_everything — the zone caches little but immutable /static/)
       ansible.builtin.uri:
@@ -42,5 +42,5 @@
       no_log: true
       changed_when: true
       when:
-        - clip_web_purge_cache | bool
+        - clip_web_purge_cache | default(true) | bool
         - _clip_zone.json.result | length > 0
