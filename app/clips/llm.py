@@ -19,14 +19,16 @@ logger = logging.getLogger(__name__)
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 _SYSTEM = (
-    "You label meme and GIF images for a searchable library. Look at the image and respond with "
-    "STRICT JSON only, exactly these keys: "
+    "You label meme and GIF images for a searchable library. You are given the image and, when "
+    "available, the caption text already extracted from it by OCR. Use the caption to understand "
+    "the joke and identify the meme, but write the description in your own words rather than "
+    "repeating the caption verbatim (the raw caption is indexed separately). Respond with STRICT "
+    "JSON only, exactly these keys: "
     '{"title": "<short human label, <= 6 words>", '
     '"description": "<one or two sentences: subjects, setting, expression, and the meme '
     'format/sentiment if recognizable>", '
-    '"tags": ["<5-12 lowercase search keywords: subjects, emotions, format, franchise>"]}. '
-    "Do not transcribe burned-in text verbatim (it is indexed separately). Output ONLY the JSON "
-    "object, no prose, no code fences."
+    '"tags": ["<5-12 lowercase search keywords: subjects, emotions, format, franchise, key '
+    'caption terms>"]}. Output ONLY the JSON object, no prose, no code fences.'
 )
 
 
@@ -34,8 +36,9 @@ class LLMError(Exception):
     """Non-recoverable describe failure (caller logs at warning; the asset is left as-is)."""
 
 
-def describe_image(image_bytes, content_type="image/webp", *, model=None, timeout=60.0):
-    """Return {'title','description','tags'} for the image, or raise LLMError."""
+def describe_image(image_bytes, content_type="image/webp", *, ocr_text="", model=None, timeout=60.0):
+    """Return {'title','description','tags'} for the image, or raise LLMError. `ocr_text` (the
+    burned-in caption Tesseract already read) is passed as grounding context when present."""
     api_key = getattr(settings, "OPENROUTER_API_KEY", "")
     if not api_key:
         raise LLMError("OPENROUTER_API_KEY is not configured.")
@@ -43,12 +46,19 @@ def describe_image(image_bytes, content_type="image/webp", *, model=None, timeou
     data_url = "data:%s;base64,%s" % (
         content_type or "image/webp", base64.b64encode(image_bytes).decode("ascii")
     )
+    user_text = "Label this image as instructed. Return only the JSON."
+    ocr_text = (ocr_text or "").strip()
+    if ocr_text:
+        user_text += (
+            "\n\nCaption text detected in the image by OCR (use it as context; it may contain "
+            "noise/garbles):\n" + ocr_text[:2000]
+        )
     payload = {
         "model": model_id,
         "messages": [
             {"role": "system", "content": _SYSTEM},
             {"role": "user", "content": [
-                {"type": "text", "text": "Label this image as instructed. Return only the JSON."},
+                {"type": "text", "text": user_text},
                 {"type": "image_url", "image_url": {"url": data_url}},
             ]},
         ],

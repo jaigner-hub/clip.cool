@@ -111,7 +111,7 @@ def autodescribe_asset(asset_id):
     ctype = "image/webp" if asset.poster_key else (asset.mime or "image/png")
     try:
         data = storage.download_bytes(key)
-        meta = llm.describe_image(data, ctype)
+        meta = llm.describe_image(data, ctype, ocr_text=asset.ocr_text or "")
     except (storage.StorageNotConfigured, llm.LLMError):
         logger.warning("clips.autodescribe: skipped for %s", asset_id, exc_info=True)
         return
