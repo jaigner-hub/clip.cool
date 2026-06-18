@@ -4,6 +4,9 @@ from django.views.generic import RedirectView
 from . import views
 
 urlpatterns = [
+    # Search IS the root (the discovery front door) — not a redirect.
+    path("", views.search_page, name="clips_search"),
+
     # Canonical root URLs for a clip (short + shareable). One page per clip: humans get the full
     # page, chat/social unfurl off its OG/Twitter meta. .gif/.mp4 are direct-rendition links.
     path("<uuid:asset_id>", views.asset_detail, name="clips_asset"),
@@ -20,7 +23,7 @@ urlpatterns = [
     path("clips/upload/", views.upload_page, name="clips_upload"),
     path("clips/upload/presign", views.presign, name="clips_presign"),
     path("clips/upload/finalize", views.finalize, name="clips_finalize"),
-    path("clips/search/", views.search_page, name="clips_search"),
+    path("clips/search/", RedirectView.as_view(pattern_name="clips_search", query_string=True, permanent=True)),
     path("clips/browse/", views.browse_page, name="clips_browse"),
     path("clips/create/", views.create_gallery, name="clips_create"),
     path("clips/create/<uuid:template_id>/", views.builder, name="clips_builder"),

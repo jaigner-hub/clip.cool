@@ -41,11 +41,6 @@ def admin_login_gate(request):
     return redirect_to_login(next_url, settings.LOGIN_URL, REDIRECT_FIELD_NAME)
 
 
-def home(request):
-    """Root: send everyone (logged in or not) to the public clip search surface."""
-    return redirect("clips_search")
-
-
 @login_required
 def lab(request):
     """CSP smoke-test page — HTMX swap, Alpine (CSP build), nonce'd inline script."""

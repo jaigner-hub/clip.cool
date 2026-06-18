@@ -130,7 +130,7 @@ class CSPTests(TestCase):
 
     def test_home_also_gets_csp(self):
         # WHY: CSP is global middleware, not per-view — every HTML response carries it.
-        resp = self.client.get(reverse("home"))
+        resp = self.client.get(reverse("clips_search"))
         self.assertIn("Content-Security-Policy", resp.headers)
 
 
@@ -143,7 +143,7 @@ class SecurityHeaderTests(TestCase):
     """
 
     def test_response_carries_the_defense_in_depth_headers(self):
-        resp = self.client.get(reverse("home"))
+        resp = self.client.get(reverse("clips_search"))
         # WHY nosniff: stops content-type sniffing turning an upload into executable script.
         self.assertEqual(resp.headers.get("X-Content-Type-Options"), "nosniff")
         # WHY Referrer-Policy: don't leak full URLs (paths, query) to cross-origin destinations.

@@ -48,5 +48,5 @@ class PasswordChangeRedirectTests(TestCase):
         self.client.force_login(user)
         # `/` redirects to the search surface; follow it to the rendered app shell (which carries
         # the account header on every signed-in page).
-        resp = self.client.get(reverse("home"), follow=True)
+        resp = self.client.get(reverse("clips_search"), follow=True)
         self.assertContains(resp, reverse("account_password"))

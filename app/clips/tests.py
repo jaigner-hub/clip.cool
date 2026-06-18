@@ -456,3 +456,16 @@ class BrowseTests(TestCase):
         Asset.objects.create(owner=u, original_key="o2.png", status=Asset.Status.TRANSCODING, is_public=True)
         Asset.objects.create(owner=u, original_key="o3.png", status=Asset.Status.READY, is_public=False)
         self.assertEqual(len(services.browse_assets()), 1)
+
+
+class RootSearchTests(TestCase):
+    def test_root_serves_search_directly(self):
+        # WHY: "/" IS the search surface now (no redirect hop).
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "clip-searchbar")
+
+    def test_old_search_path_301s_to_root_preserving_query(self):
+        r = self.client.get("/clips/search/?q=gollum")
+        self.assertEqual(r.status_code, 301)
+        self.assertEqual(r["Location"], "/?q=gollum")
