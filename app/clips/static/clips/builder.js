@@ -54,12 +54,17 @@
 
   function metrics(b) {
     const size = Math.max(8, b.size * H());
-    const maxW = b.w * W();
+    const maxW = b.w * W();                       // wrap width (the Width slider)
     const lines = wrap((b.text || "").toUpperCase(), maxW, size);
+    ctx.font = size + "px " + FONT;
+    let textW = 1;
+    for (const ln of lines) textW = Math.max(textW, ctx.measureText(ln).width);
+    const pad = size * 0.18;
+    const boxW = Math.min(maxW, textW + pad * 2);  // selection hugs the actual text, capped at maxW
     const lineH = size * 1.08;
     const h = lines.length * lineH;
     const cx = b.cx * W(), cy = b.cy * H();
-    return { size, maxW, lines, lineH, h, cx, cy, x: cx - maxW / 2, y: cy - h / 2 };
+    return { size, maxW, boxW, lines, lineH, h, cx, cy, x: cx - boxW / 2, y: cy - h / 2 };
   }
 
   function handleSize() { return Math.max(12, W() * 0.022); }
@@ -87,10 +92,10 @@
         ctx.strokeStyle = "#2563eb";
         ctx.lineWidth = Math.max(1.5, W() * 0.003);
         ctx.setLineDash([7, 5]);
-        ctx.strokeRect(m.x, m.y, m.maxW, m.h);
+        ctx.strokeRect(m.x, m.y, m.boxW, m.h);
         ctx.setLineDash([]);
         ctx.fillStyle = "#2563eb";
-        ctx.fillRect(m.x + m.maxW - hs / 2, m.y + m.h - hs / 2, hs, hs);  // resize handle
+        ctx.fillRect(m.x + m.boxW - hs / 2, m.y + m.h - hs / 2, hs, hs);  // resize handle
         ctx.restore();
       }
     });
@@ -105,12 +110,12 @@
   }
   function onHandle(b, p) {
     const m = metrics(b), hs = handleSize();
-    return p.x >= m.x + m.maxW - hs && p.x <= m.x + m.maxW + hs &&
+    return p.x >= m.x + m.boxW - hs && p.x <= m.x + m.boxW + hs &&
            p.y >= m.y + m.h - hs && p.y <= m.y + m.h + hs;
   }
   function onBox(b, p) {
     const m = metrics(b);
-    return p.x >= m.x && p.x <= m.x + m.maxW && p.y >= m.y && p.y <= m.y + m.h;
+    return p.x >= m.x && p.x <= m.x + m.boxW && p.y >= m.y && p.y <= m.y + m.h;
   }
 
   function syncPanel() {
