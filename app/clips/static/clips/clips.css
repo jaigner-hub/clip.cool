@@ -1,0 +1,60 @@
+/* clip.cool search/upload surfaces. Self-hosted (CSP script/style-src 'self'). */
+
+.clip-grid {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.clip-card {
+  background: #fff;
+  border: 1px solid #e3e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.clip-card > a {
+  display: block;
+  line-height: 0;
+}
+
+.clip-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  display: block;
+  background: #eef1f4;
+}
+
+.clip-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+}
+
+.clip-meta:empty { display: none; }
+
+.clip-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-right: auto;
+}
+
+.clip-tag,
+.clip-status {
+  font-size: 11px;
+  line-height: 1.6;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.clip-tag { background: #eef1f4; color: #475569; }
+.clip-status { background: #fde68a; color: #7c5e10; }

@@ -1,4 +1,6 @@
 {% extends "app_base.html" %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
 {% block title %}Search · clip.cool{% endblock %}
 {% block app_content %}
 <div class="kg-page-head">
@@ -14,16 +16,16 @@
 
 {% if q %}
   {% if results %}
-  <ul class="kg-grid">
+  <ul class="clip-grid">
     {% for r in results %}
-    <li class="kg-card">
+    <li class="clip-card">
       <a href="{{ r.url }}" target="_blank" rel="noopener">
-        <img class="kg-thumb" src="{{ r.poster_url }}" alt="{{ r.title }}" loading="lazy">
+        <img class="clip-thumb" src="{{ r.poster_url }}" alt="{{ r.title|default:'clip' }}" loading="lazy">
       </a>
-      <div class="kg-card-meta">
-        <span class="kg-card-title">{{ r.title|default:r.id }}</span>
-        {% if r.status != 'ready' %}<span class="kg-pill">{{ r.status }}</span>{% endif %}
-        {% for t in r.tags %}<span class="kg-pill">{{ t }}</span>{% endfor %}
+      <div class="clip-meta">
+        {% if r.title %}<span class="clip-title">{{ r.title }}</span>{% endif %}
+        {% if r.status != 'ready' %}<span class="clip-status">{{ r.status }}</span>{% endif %}
+        {% for t in r.tags %}<span class="clip-tag">{{ t }}</span>{% endfor %}
       </div>
     </li>
     {% endfor %}

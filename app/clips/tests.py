@@ -31,9 +31,20 @@ class FinalizeTests(TestCase):
         mock_task.defer.assert_called_once_with(asset_id=str(asset.id))
 
     @patch("clips.tasks.process_asset")
-    def test_finalize_defaults_title_from_key(self, mock_task):
-        asset = services.finalize_asset(self.user, key="originals/abc/cat.png", content_type="image/png")
-        self.assertEqual(asset.title, "cat.png")
+    def test_finalize_leaves_title_blank_when_unnamed(self, mock_task):
+        # WHY: we never expose/store the original filename — an unnamed upload has a blank title
+        # (it's still findable by OCR text + tags), not the filename.
+        asset = services.finalize_asset(self.user, key="originals/deadbeef.gif", content_type="image/gif")
+        self.assertEqual(asset.title, "")
+
+    @patch("clips.services.storage")
+    def test_presigned_key_has_no_filename(self, mock_storage):
+        # WHY: the object key is a random id + extension, never the user's filename.
+        mock_storage.presign_put.return_value = "https://example.test/put"
+        out = services.create_presigned_upload(self.user, "My Secret Meme.GIF", "image/gif")
+        self.assertNotIn("secret", out["key"].lower())
+        self.assertTrue(out["key"].startswith("originals/"))
+        self.assertTrue(out["key"].endswith(".gif"))
 
     def test_presign_rejects_unsupported_type(self):
         # WHY: this is the image slice; only allow-listed image types get a signed PUT.

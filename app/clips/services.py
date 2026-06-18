@@ -11,7 +11,7 @@ Ingest flow:
 import hashlib
 import io
 import logging
-import re
+import mimetypes
 import uuid
 
 from . import search, storage
@@ -24,20 +24,25 @@ ALLOWED_CONTENT_TYPES = {
     "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif",
 }
 
-_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
-
-def _safe_filename(name):
-    name = (name or "").strip().rsplit("/", 1)[-1].rsplit("\\", 1)[-1] or "upload"
-    return _UNSAFE.sub("-", name)[:128]
+def _ext_for(filename, content_type):
+    """File extension for the stored object — from the upload's name, else the content type.
+    We do NOT keep the original filename in the key (privacy + collisions); just the type."""
+    tail = (filename or "").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if "." in tail:
+        ext = "." + tail.rsplit(".", 1)[-1].lower()
+        if ext.isascii() and len(ext) <= 6 and ext[1:].isalnum():
+            return ext
+    return mimetypes.guess_extension(content_type or "") or ""
 
 
 def create_presigned_upload(user, filename, content_type):
     """Issue a presigned PUT so the browser uploads straight to R2. Returns the object `key` the
-    caller echoes back to finalize_asset, plus the URL/method/headers to use."""
+    caller echoes back to finalize_asset, plus the URL/method/headers to use. The key is a random
+    id + extension — the original filename is never used as the object name."""
     if content_type not in ALLOWED_CONTENT_TYPES:
         raise ValueError(f"Unsupported content type: {content_type!r}")
-    key = f"originals/{uuid.uuid4()}/{_safe_filename(filename)}"
+    key = f"originals/{uuid.uuid4().hex}{_ext_for(filename, content_type)}"
     return {
         "key": key,
         "url": storage.presign_put(key, content_type),
@@ -54,7 +59,7 @@ def finalize_asset(user, *, key, title="", content_type="", tags=None):
         owner=user,
         original_key=key,
         mime=content_type or "",
-        title=(title or "").strip() or _title_from_key(key),
+        title=(title or "").strip(),   # blank unless the user named it — never the filename
         tags=list(tags or []),
         status=Asset.Status.PENDING,
     )
@@ -174,7 +179,3 @@ def serialize(asset):
         "poster_url": storage.public_url(asset.poster_key or asset.original_key),
         "created_at": asset.created_at,
     }
-
-
-def _title_from_key(key):
-    return (key or "").rsplit("/", 1)[-1]
