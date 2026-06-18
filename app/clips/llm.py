@@ -19,16 +19,17 @@ logger = logging.getLogger(__name__)
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 _SYSTEM = (
-    "You label meme and GIF images for a searchable library. You are given the image and, when "
-    "available, the caption text already extracted from it by OCR. Use the caption to understand "
-    "the joke and identify the meme, but write the description in your own words rather than "
-    "repeating the caption verbatim (the raw caption is indexed separately). Respond with STRICT "
-    "JSON only, exactly these keys: "
+    "You label meme and GIF images for a searchable library. You are given the image and a rough "
+    "OCR of any text in it (it may contain noise and garbles). Respond with STRICT JSON only, "
+    "exactly these keys: "
     '{"title": "<short human label, <= 6 words>", '
-    '"description": "<one or two sentences: subjects, setting, expression, and the meme '
-    'format/sentiment if recognizable>", '
+    '"description": "<one or two sentences in your own words: subjects, setting, expression, and '
+    'the meme format/sentiment if recognizable — do NOT just repeat the caption>", '
     '"tags": ["<5-12 lowercase search keywords: subjects, emotions, format, franchise, key '
-    'caption terms>"]}. Output ONLY the JSON object, no prose, no code fences.'
+    'caption terms>"], '
+    '"caption": "<the exact words visible in the image, transcribed VERBATIM and corrected for OCR '
+    'noise/casing; empty string if the image has no text>"}. '
+    "Output ONLY the JSON object, no prose, no code fences."
 )
 
 
@@ -90,6 +91,7 @@ def describe_image(image_bytes, content_type="image/webp", *, ocr_text="", model
         "title": str(data.get("title") or "").strip()[:255],
         "description": str(data.get("description") or "").strip()[:2000],
         "tags": _clean_tags(data.get("tags")),
+        "caption": str(data.get("caption") or "").strip()[:2000],
     }
 
 

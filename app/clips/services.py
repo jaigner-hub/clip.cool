@@ -121,12 +121,21 @@ def autodescribe_asset(asset_id, *, force_title=False):
         logger.warning("clips.autodescribe: unexpected error for %s", asset_id, exc_info=True)
         return
     changed = False
+    fields = ["updated_at"]
     if meta["title"] and (force_title or not asset.title):   # don't clobber a human title at ingest
         asset.title = meta["title"]
         changed = True
+        fields.append("title")
     if meta["description"]:
         asset.description = meta["description"]
         changed = True
+        fields.append("description")
+    # The vision model reads stylized meme text far better than Tesseract — prefer its verbatim
+    # caption as the indexed text (Tesseract was only the rough hint we fed it).
+    if meta.get("caption") and meta["caption"] != asset.ocr_text:
+        asset.ocr_text = meta["caption"]
+        changed = True
+        fields.append("ocr_text")
     if meta["tags"]:
         existing = {t.lower() for t in (asset.tags or [])}
         merged = list(asset.tags or [])
@@ -137,8 +146,9 @@ def autodescribe_asset(asset_id, *, force_title=False):
         if merged != (asset.tags or []):
             asset.tags = merged
             changed = True
+            fields.append("tags")
     if changed:
-        asset.save(update_fields=["title", "description", "tags", "updated_at"])
+        asset.save(update_fields=fields)
         search.upsert(asset)
         logger.info("clips: autodescribed %s (tags=%d)", asset.id, len(asset.tags or []))
 
