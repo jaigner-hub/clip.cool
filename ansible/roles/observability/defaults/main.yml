@@ -38,7 +38,7 @@ tempo_image: "grafana/tempo:2.6.1"
 # --- Blackbox exporter (external uptime + TLS cert-expiry; Cloudflare terminates TLS) ---
 blackbox_image: "quay.io/prometheus/blackbox-exporter:v0.25.0"
 blackbox_targets:
-  - "https://app.vent.dog/"
+  - "https://clip.cool/"
   - "https://id.clip.cool/realms/keygrip"
   - "https://vent.dog/"
 

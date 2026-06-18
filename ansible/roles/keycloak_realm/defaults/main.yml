@@ -19,7 +19,6 @@ clip_web_redirect_uris:
   - "http://localhost:8000/*"
   - "http://127.0.0.1:8000/*"
   - "https://clip.cool/*"           # primary public host (the apex)
-  - "https://app.vent.dog/*"        # kept during the cutover; drop with app.vent.dog later
   - "https://vent-keygrip.tail1ec6c3.ts.net:8447/*"
 # The `./mc` local-dev tool gives each worktree instance a web port in this range; every port is
 # registered as a redirect URI (in the template) so OIDC login works on any instance. MUST stay in
@@ -29,7 +28,6 @@ keygrip_mc_web_port_max: 8099
 # Public PKCE client used only by the Swagger UI "Authorize" button (browser, no secret).
 api_docs_redirect_uris:
   - "https://clip.cool/*"
-  - "https://app.vent.dog/*"        # kept during the cutover
   - "http://localhost:8000/*"
   - "http://127.0.0.1:8000/*"
 # Groups every new user (incl. brokered Google logins) auto-joins. Least-privilege baseline.

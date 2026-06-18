@@ -136,7 +136,7 @@ reboot_if_safe() {
 undrain() {
   local code=000
   for _ in $(seq 1 60); do                       # wait up to ~5 min for the local app to be ready
-    code=$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 -H 'Host: app.vent.dog' http://127.0.0.1:8000/readyz 2>/dev/null || echo 000)
+    code=$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 -H 'Host: clip.cool' http://127.0.0.1:8000/readyz 2>/dev/null || echo 000)
     [ "$code" = "200" ] && break
     sleep 5
   done

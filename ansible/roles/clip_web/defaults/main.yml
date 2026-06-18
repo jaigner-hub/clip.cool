@@ -1,10 +1,10 @@
 ---
 app_dir: /opt/keygrip/webapp   # platform install root stays /opt/keygrip (shared with the chat stack)
-# Primary public hostname: the clip.cool apex (HA via a CF Load Balancer across both boxes). During
-# the cutover app.vent.dog is kept as a secondary host (compose.yml.j2 allows both); drop it later.
+# Public hostname: the clip.cool apex (HA via a CF Load Balancer across both boxes). app.vent.dog
+# was retired.
 app_hostname: clip.cool
-# Transitional secondary hosts still served + trusted while we cut over from app.vent.dog.
-app_alt_hostnames: ["app.vent.dog"]
+# Extra hosts also served + CSRF-trusted (none now; app.vent.dog retired).
+app_alt_hostnames: []
 # Tailnet (Tailscale Serve) host:port the app is also reachable on — the break-glass path:
 # the ONLY host where the admin password login form is served (ADR 0002; /admin itself is public).
 # Must match the serve mapping in playbooks/serve.yml and the clip-web redirect URI in
