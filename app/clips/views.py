@@ -6,14 +6,61 @@ import json
 import logging
 
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponseBadRequest, JsonResponse
-from django.shortcuts import render
+from django.http import Http404, HttpResponseBadRequest, JsonResponse
+from django.shortcuts import redirect, render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from . import services
 
 logger = logging.getLogger(__name__)
+
+
+@login_required
+def library(request):
+    """All of the user's clips, newest first (superuser sees everyone's)."""
+    assets = [services.serialize(a) for a in services.list_assets(request.user, limit=200)]
+    return render(request, "clips/library.html", {"active_page": "clips_library", "assets": assets})
+
+
+@login_required
+def asset_detail(request, asset_id):
+    """One clip + its (possibly still-generating) metadata. The template auto-refreshes while the
+    status is pending, so this is where the upload flow lands to watch describe/OCR complete."""
+    asset = services.get_asset_for(request.user, asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    return render(request, "clips/detail.html", {
+        "active_page": "clips_library", "asset": asset, "a": services.serialize(asset),
+    })
+
+
+@login_required
+def asset_edit(request, asset_id):
+    asset = services.get_asset_for(request.user, asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    if request.method == "POST":
+        tags = (request.POST.get("tags") or "").split(",")
+        services.update_asset(
+            request.user, asset_id,
+            title=request.POST.get("title", ""),
+            description=request.POST.get("description", ""),
+            tags=tags,
+        )
+        return redirect("clips_asset", asset_id=asset_id)
+    return render(request, "clips/edit.html", {
+        "active_page": "clips_library", "asset": asset, "a": services.serialize(asset),
+        "tags_str": ", ".join(asset.tags or []),
+    })
+
+
+@login_required
+@require_POST
+def asset_regenerate(request, asset_id):
+    if services.regenerate_asset(request.user, asset_id) is None:
+        raise Http404("Clip not found.")
+    return redirect("clips_asset", asset_id=asset_id)
 
 
 @login_required

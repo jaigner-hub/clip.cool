@@ -1,0 +1,35 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
+{% block title %}Edit · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <a class="kg-acct-link" href="{% url 'clips_asset' asset.id %}">← Back to clip</a>
+  <h1 class="kg-title">Edit clip</h1>
+</div>
+
+<div class="clip-detail">
+  <div class="clip-detail-media">
+    <img src="{{ a.poster_url }}" alt="{{ a.title }}">
+  </div>
+  <form method="post" class="kg-panel clip-detail-info">
+    {% csrf_token %}
+    <div class="kg-field">
+      <label for="title">Title</label>
+      <input type="text" id="title" name="title" maxlength="255" value="{{ asset.title }}">
+    </div>
+    <div class="kg-field">
+      <label for="description">Description</label>
+      <textarea id="description" name="description" rows="3">{{ asset.description }}</textarea>
+    </div>
+    <div class="kg-field">
+      <label for="tags">Tags <span class="kg-muted">(comma-separated)</span></label>
+      <input type="text" id="tags" name="tags" value="{{ tags_str }}">
+    </div>
+    <div class="kg-row">
+      <button type="submit" class="kg-btn">Save</button>
+      <a class="kg-btn kg-btn-sm" href="{% url 'clips_asset' asset.id %}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

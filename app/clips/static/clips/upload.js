@@ -56,12 +56,9 @@
       if (!res.ok) { setStatus("Finalize failed: " + (await res.text()), "error"); return; }
       const asset = await res.json();
 
-      setStatus("Uploaded. Processing (poster + OCR + index) runs in the background. ", "ok");
-      const link = document.createElement("a");
-      link.href = searchURL + "?q=" + encodeURIComponent(asset.title || "");
-      link.textContent = "Search for it →";
-      statusEl.appendChild(link);
-      form.reset();
+      setStatus("Uploaded — opening your clip…", "ok");
+      // Land on the asset page; it auto-refreshes while the poster/OCR/AI labels generate.
+      window.location.href = "/clips/asset/" + encodeURIComponent(asset.id) + "/";
     } catch (err) {
       setStatus("Error: " + err, "error");
     }

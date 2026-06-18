@@ -132,3 +132,43 @@ class AutodescribeTests(TestCase):
         self.assertEqual(a.title, "")
         self.assertEqual(a.tags, ["mine"])
         mock_search.upsert.assert_not_called()
+
+
+class EditAndAccessTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("u@example.com", "u@example.com")
+        self.other = User.objects.create_user("o@example.com", "o@example.com")
+        self.asset = Asset.objects.create(
+            owner=self.user, original_key="originals/x.gif",
+            status=Asset.Status.READY, title="old", tags=["a"],
+        )
+
+    @patch("clips.services.search")
+    def test_update_saves_and_reindexes(self, mock_search):
+        a = services.update_asset(
+            self.user, str(self.asset.id), title="New", description="d", tags=["x", "x", "Y"]
+        )
+        self.assertIsNotNone(a)
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.title, "New")
+        self.assertEqual(self.asset.description, "d")
+        self.assertEqual(self.asset.tags, ["x", "Y"])   # deduped (case-insensitive), order kept
+        mock_search.upsert.assert_called_once()
+
+    def test_other_user_cannot_see_or_edit(self):
+        # WHY: clips are per-user; another user must not read or mutate them.
+        self.assertIsNone(services.get_asset_for(self.other, str(self.asset.id)))
+        self.assertIsNone(services.update_asset(self.other, str(self.asset.id), title="hacked"))
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.title, "old")       # unchanged
+
+    def test_superuser_can_see_any(self):
+        self.other.is_superuser = True
+        self.other.save()
+        self.assertIsNotNone(services.get_asset_for(self.other, str(self.asset.id)))
+
+    @patch("clips.tasks.autodescribe_asset")
+    def test_regenerate_enqueues_with_force_title(self, mock_task):
+        a = services.regenerate_asset(self.user, str(self.asset.id))
+        self.assertIsNotNone(a)
+        mock_task.defer.assert_called_once_with(asset_id=str(self.asset.id), force_title=True)

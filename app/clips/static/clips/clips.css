@@ -58,3 +58,29 @@
 
 .clip-tag { background: #eef1f4; color: #475569; }
 .clip-status { background: #fde68a; color: #7c5e10; }
+
+/* Detail + edit: image beside info, stacking on narrow screens. */
+.clip-detail {
+  display: grid;
+  grid-template-columns: minmax(280px, 460px) 1fr;
+  gap: 24px;
+  align-items: start;
+  margin-top: 12px;
+}
+@media (max-width: 720px) { .clip-detail { grid-template-columns: 1fr; } }
+
+.clip-detail-media {
+  background: #eef1f4;
+  border: 1px solid #e3e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.clip-detail-media img { width: 100%; height: auto; display: block; }
+.clip-detail-info { min-width: 0; }
+
+.clip-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+.clip-actions form { margin: 0; }
+
+.clip-ocr { margin-top: 16px; }
+.clip-ocr summary { cursor: pointer; font-size: 13px; }
+.clip-ocr p { white-space: pre-wrap; font-size: 13px; color: #475569; margin: 6px 0 0; }

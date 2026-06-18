@@ -5,6 +5,7 @@
   <header class="kg-header">
     <a class="kg-brand" href="{% url 'clips_search' %}">clip.cool</a>
     <nav class="kg-nav">
+      <a href="{% url 'clips_library' %}"{% if active_page == 'clips_library' %} class="is-active"{% endif %}>My clips</a>
       <a href="{% url 'clips_search' %}"{% if active_page == 'clips' %} class="is-active"{% endif %}>Search</a>
       <a href="{% url 'clips_upload' %}"{% if active_page == 'clips_upload' %} class="is-active"{% endif %}>Upload</a>
       <a href="https://github.com/jaigner-hub/snipper/releases/latest" target="_blank" rel="noopener">Get Snipper ↗</a>

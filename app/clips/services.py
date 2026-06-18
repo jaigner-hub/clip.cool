@@ -99,9 +99,10 @@ def process_asset(asset_id):
         Asset.objects.filter(pk=asset_id).update(status=Asset.Status.FAILED)
 
 
-def autodescribe_asset(asset_id):
-    """Vision auto-labeling via OpenRouter (clips.llm): fills title (only if unset) + description,
-    and merges extra tags. Best-effort — any failure leaves the asset's OCR/tags untouched."""
+def autodescribe_asset(asset_id, *, force_title=False):
+    """Vision auto-labeling via OpenRouter (clips.llm): fills title (only if unset, unless
+    force_title) + description, and merges extra tags. Best-effort — any failure leaves the
+    asset's OCR/tags untouched. `force_title` is set by an explicit user "regenerate"."""
     asset = Asset.objects.filter(pk=asset_id).first()
     if asset is None:
         return
@@ -119,7 +120,7 @@ def autodescribe_asset(asset_id):
         logger.warning("clips.autodescribe: unexpected error for %s", asset_id, exc_info=True)
         return
     changed = False
-    if meta["title"] and not asset.title:        # never clobber a human-given title
+    if meta["title"] and (force_title or not asset.title):   # don't clobber a human title at ingest
         asset.title = meta["title"]
         changed = True
     if meta["description"]:
@@ -238,6 +239,50 @@ def search_assets(user, q, *, limit=40):
 def list_assets(user, *, limit=40):
     qs = Asset.objects.all() if getattr(user, "is_superuser", False) else Asset.objects.filter(owner=user)
     return list(qs[:limit])
+
+
+def get_asset_for(user, asset_id):
+    """One asset the user may see/edit (owner, or any for a superuser). None if not found/allowed."""
+    qs = Asset.objects.all() if getattr(user, "is_superuser", False) else Asset.objects.filter(owner=user)
+    return qs.filter(pk=asset_id).first()
+
+
+def update_asset(user, asset_id, *, title=None, description=None, tags=None):
+    """Apply a user's manual edits and re-index. Returns the asset, or None if not found/allowed.
+    Fields left None are unchanged; auto-describe only runs at ingest, so edits aren't clobbered."""
+    asset = get_asset_for(user, asset_id)
+    if asset is None:
+        return None
+    fields = ["updated_at"]
+    if title is not None:
+        asset.title = title.strip()[:255]
+        fields.append("title")
+    if description is not None:
+        asset.description = description.strip()[:2000]
+        fields.append("description")
+    if tags is not None:
+        cleaned, seen = [], set()
+        for t in tags:
+            t = t.strip()[:40]
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                cleaned.append(t)
+        asset.tags = cleaned[:30]
+        fields.append("tags")
+    asset.save(update_fields=fields)
+    search.upsert(asset)
+    return asset
+
+
+def regenerate_asset(user, asset_id):
+    """Re-run vision auto-describe on demand (owner/superuser). Overwrites title + description and
+    re-merges tags. Returns the asset, or None if not found/allowed."""
+    asset = get_asset_for(user, asset_id)
+    if asset is None:
+        return None
+    from .tasks import autodescribe_asset
+    autodescribe_asset.defer(asset_id=str(asset.id), force_title=True)
+    return asset
 
 
 def serialize(asset):

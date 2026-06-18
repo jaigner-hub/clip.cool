@@ -21,5 +21,5 @@ def index_asset(asset_id: str) -> None:
 
 
 @app.task(queue="index")
-def autodescribe_asset(asset_id: str) -> None:
-    services.autodescribe_asset(asset_id)
+def autodescribe_asset(asset_id: str, force_title: bool = False) -> None:
+    services.autodescribe_asset(asset_id, force_title=force_title)

@@ -1,0 +1,49 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block head %}
+<link rel="stylesheet" href="{% static 'clips/clips.css' %}">
+{% if asset.status == 'pending' %}<meta http-equiv="refresh" content="3">{% endif %}
+{% endblock %}
+{% block title %}{{ a.title|default:'Clip' }} · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <a class="kg-acct-link" href="{% url 'clips_library' %}">← My clips</a>
+</div>
+
+<div class="clip-detail">
+  <div class="clip-detail-media">
+    <img src="{{ a.url }}" alt="{{ a.title|default:'clip' }}">
+  </div>
+
+  <div class="clip-detail-info">
+    {% if asset.status == 'pending' %}
+      <p class="clip-status">processing… <span class="kg-muted">(poster, OCR, and AI labels are generating — this page refreshes)</span></p>
+    {% elif asset.status == 'failed' %}
+      <p class="clip-status">processing failed</p>
+    {% endif %}
+
+    <h1 class="kg-title">{{ a.title|default:"Untitled" }}</h1>
+    {% if a.description %}<p class="kg-sub">{{ a.description }}</p>{% endif %}
+
+    <div class="clip-meta">
+      {% for t in a.tags %}<span class="clip-tag">{{ t }}</span>{% endfor %}
+    </div>
+
+    <div class="clip-actions">
+      <a class="kg-btn kg-btn-sm" href="{% url 'clips_edit' asset.id %}">Edit</a>
+      <form method="post" action="{% url 'clips_regenerate' asset.id %}">
+        {% csrf_token %}
+        <button type="submit" class="kg-btn kg-btn-sm">Regenerate AI labels</button>
+      </form>
+      <a class="kg-acct-link" href="{{ a.url }}" target="_blank" rel="noopener">Open original ↗</a>
+    </div>
+
+    {% if asset.ocr_text %}
+    <details class="clip-ocr">
+      <summary class="kg-muted">Detected text (OCR)</summary>
+      <p>{{ asset.ocr_text }}</p>
+    </details>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
