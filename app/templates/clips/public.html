@@ -25,7 +25,7 @@
 <div class="pub">
   <div class="pub-media clip-media-wrap">
     {% if a.media_type == 'video' and sources %}
-    <video autoplay loop muted playsinline controls poster="{{ a.poster_url }}">
+    <video autoplay loop muted playsinline poster="{{ a.poster_url }}">
       {% for s in sources %}<source src="{{ s.url }}" type="{{ s.mime }}">{% endfor %}
       <img src="{{ a.poster_url }}" alt="{{ a.title|default:'clip' }}">
     </video>
