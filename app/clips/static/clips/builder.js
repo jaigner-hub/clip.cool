@@ -1,19 +1,31 @@
-// clip.cool meme builder (CSP-clean: external same-origin script).
-// The canvas you edit IS what gets posted — one render path, so preview === output.
-// Publish reuses the normal presign -> PUT-to-R2 -> finalize pipeline.
+// clip.cool meme builder — freeform draggable/resizable text boxes (CSP-clean static script).
+// Everything is drawn on ONE canvas (both while editing and on export), so preview === output.
+// Boxes are stored in fractional coords (resolution-independent). Publish reuses presign/finalize.
 (function () {
   "use strict";
   const form = document.getElementById("builder-form");
   if (!form) return;
   const canvas = document.getElementById("meme-canvas");
   const ctx = canvas.getContext("2d");
-  const topEl = document.getElementById("top");
-  const bottomEl = document.getElementById("bottom");
   const statusEl = document.getElementById("builder-status");
+  const panel = document.getElementById("box-panel");
+  const hint = document.getElementById("builder-hint");
+  const textEl = document.getElementById("box-text");
+  const sizeEl = document.getElementById("box-size");
+  const widthEl = document.getElementById("box-width");
+  const addBtn = document.getElementById("add-text");
+  const delBtn = document.getElementById("del-box");
   const FONT = "Anton, Impact, 'Arial Narrow', sans-serif";
 
   const img = new Image();
   img.crossOrigin = "anonymous";
+  let boxes = [];      // {text, cx, cy, w, size}  — cx/cy/w/size are fractions of canvas w/h
+  let sel = -1;
+  let drag = null;     // {mode:'move'|'resize', ...}
+  let exporting = false;
+
+  const W = () => canvas.width;
+  const H = () => canvas.height;
 
   function cookie(name) {
     const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
@@ -23,6 +35,174 @@
     statusEl.textContent = msg;
     statusEl.className = "kg-status" + (kind ? " is-" + kind : "");
   }
+
+  function wrap(text, maxWidth, size) {
+    ctx.font = size + "px " + FONT;
+    const out = [];
+    (text || "").split("\n").forEach(function (para) {
+      const words = para.split(/\s+/).filter(Boolean);
+      let cur = "";
+      for (const w of words) {
+        const test = cur ? cur + " " + w : w;
+        if (!cur || ctx.measureText(test).width <= maxWidth) cur = test;
+        else { out.push(cur); cur = w; }
+      }
+      out.push(cur);
+    });
+    return out.length ? out : [""];
+  }
+
+  function metrics(b) {
+    const size = Math.max(8, b.size * H());
+    const maxW = b.w * W();
+    const lines = wrap((b.text || "").toUpperCase(), maxW, size);
+    const lineH = size * 1.08;
+    const h = lines.length * lineH;
+    const cx = b.cx * W(), cy = b.cy * H();
+    return { size, maxW, lines, lineH, h, cx, cy, x: cx - maxW / 2, y: cy - h / 2 };
+  }
+
+  function handleSize() { return Math.max(12, W() * 0.022); }
+
+  function render() {
+    ctx.clearRect(0, 0, W(), H());
+    if (img.naturalWidth) ctx.drawImage(img, 0, 0, W(), H());
+    boxes.forEach(function (b, i) {
+      const m = metrics(b);
+      ctx.font = m.size + "px " + FONT;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(2, m.size / 8);
+      ctx.strokeStyle = "#000";
+      ctx.fillStyle = "#fff";
+      m.lines.forEach(function (ln, li) {
+        const y = m.y + li * m.lineH;
+        ctx.strokeText(ln, m.cx, y);
+        ctx.fillText(ln, m.cx, y);
+      });
+      if (!exporting && i === sel) {
+        const hs = handleSize();
+        ctx.save();
+        ctx.strokeStyle = "#2563eb";
+        ctx.lineWidth = Math.max(1.5, W() * 0.003);
+        ctx.setLineDash([7, 5]);
+        ctx.strokeRect(m.x, m.y, m.maxW, m.h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#2563eb";
+        ctx.fillRect(m.x + m.maxW - hs / 2, m.y + m.h - hs / 2, hs, hs);  // resize handle
+        ctx.restore();
+      }
+    });
+  }
+
+  function pointAt(e) {
+    const r = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (canvas.width / r.width),
+      y: (e.clientY - r.top) * (canvas.height / r.height),
+    };
+  }
+  function onHandle(b, p) {
+    const m = metrics(b), hs = handleSize();
+    return p.x >= m.x + m.maxW - hs && p.x <= m.x + m.maxW + hs &&
+           p.y >= m.y + m.h - hs && p.y <= m.y + m.h + hs;
+  }
+  function onBox(b, p) {
+    const m = metrics(b);
+    return p.x >= m.x && p.x <= m.x + m.maxW && p.y >= m.y && p.y <= m.y + m.h;
+  }
+
+  function syncPanel() {
+    if (sel < 0) {
+      panel.hidden = true;
+      hint.hidden = false;
+      return;
+    }
+    panel.hidden = false;
+    hint.hidden = true;
+    const b = boxes[sel];
+    textEl.value = b.text;
+    sizeEl.value = Math.round(b.size * 100);
+    widthEl.value = Math.round(b.w * 100);
+  }
+
+  function addBox() {
+    boxes.push({ text: "TEXT", cx: 0.5, cy: boxes.length ? 0.5 : 0.12, w: 0.8, size: 0.1 });
+    sel = boxes.length - 1;
+    syncPanel();
+    render();
+    textEl.focus();
+    textEl.select();
+  }
+
+  canvas.addEventListener("pointerdown", function (e) {
+    const p = pointAt(e);
+    if (sel >= 0 && onHandle(boxes[sel], p)) {
+      drag = { mode: "resize", p: p, size: boxes[sel].size };
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    for (let i = boxes.length - 1; i >= 0; i--) {
+      if (onBox(boxes[i], p)) {
+        sel = i;
+        syncPanel();
+        drag = { mode: "move", p: p, cx: boxes[i].cx, cy: boxes[i].cy };
+        canvas.setPointerCapture(e.pointerId);
+        render();
+        return;
+      }
+    }
+    sel = -1;
+    syncPanel();
+    render();
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    if (!drag || sel < 0) return;
+    const p = pointAt(e), b = boxes[sel];
+    if (drag.mode === "move") {
+      b.cx = Math.min(1, Math.max(0, drag.cx + (p.x - drag.p.x) / W()));
+      b.cy = Math.min(1, Math.max(0, drag.cy + (p.y - drag.p.y) / H()));
+    } else {
+      b.size = Math.min(0.4, Math.max(0.03, drag.size + (p.y - drag.p.y) / H()));
+      sizeEl.value = Math.round(b.size * 100);
+    }
+    render();
+  });
+  function endDrag() { drag = null; }
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+
+  addBtn.addEventListener("click", addBox);
+  delBtn.addEventListener("click", function () {
+    if (sel < 0) return;
+    boxes.splice(sel, 1);
+    sel = -1;
+    syncPanel();
+    render();
+  });
+  textEl.addEventListener("input", function () {
+    if (sel >= 0) { boxes[sel].text = textEl.value; render(); }
+  });
+  sizeEl.addEventListener("input", function () {
+    if (sel >= 0) { boxes[sel].size = sizeEl.value / 100; render(); }
+  });
+  widthEl.addEventListener("input", function () {
+    if (sel >= 0) { boxes[sel].w = widthEl.value / 100; render(); }
+  });
+
+  img.onload = function () {
+    canvas.width = img.naturalWidth || 600;
+    canvas.height = img.naturalHeight || 600;
+    if (!boxes.length) addBox();
+    render();
+  };
+  img.onerror = function () { setStatus("Couldn't load the template image.", "error"); };
+  img.src = form.dataset.img;
+  if (document.fonts && document.fonts.load) {
+    document.fonts.load("64px Anton").then(render).catch(function () {});
+  }
+
   function postJSON(url, body) {
     return fetch(url, {
       method: "POST",
@@ -32,87 +212,28 @@
     });
   }
 
-  function wrap(text, maxWidth, size) {
-    ctx.font = size + "px " + FONT;
-    const words = text.split(/\s+/).filter(Boolean);
-    const lines = [];
-    let cur = "";
-    for (const w of words) {
-      const test = cur ? cur + " " + w : w;
-      if (!cur || ctx.measureText(test).width <= maxWidth) cur = test;
-      else { lines.push(cur); cur = w; }
-    }
-    if (cur) lines.push(cur);
-    return lines;
-  }
-
-  function drawBlock(raw, pos) {
-    const text = (raw || "").toUpperCase().trim();
-    if (!text) return;
-    const W = canvas.width, H = canvas.height, maxWidth = W * 0.92;
-    let size = Math.floor(H * 0.14);
-    const min = Math.floor(H * 0.05);
-    let lines = wrap(text, maxWidth, size);
-    while (size > min) {
-      const overflow = lines.some((l) => ctx.measureText(l).width > maxWidth);
-      if (!overflow && lines.length * size * 1.05 <= H * 0.45) break;
-      size -= Math.max(2, Math.floor(size * 0.08));
-      lines = wrap(text, maxWidth, size);
-    }
-    ctx.font = size + "px " + FONT;
-    ctx.textAlign = "center";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = Math.max(2, size / 8);
-    ctx.strokeStyle = "#000";
-    ctx.fillStyle = "#fff";
-    const lineH = size * 1.05;
-    const pad = Math.floor(H * 0.025);
-    for (let i = 0; i < lines.length; i++) {
-      let y;
-      if (pos === "top") { ctx.textBaseline = "top"; y = pad + i * lineH; }
-      else { ctx.textBaseline = "bottom"; y = H - pad - (lines.length - 1 - i) * lineH; }
-      ctx.strokeText(lines[i], W / 2, y);
-      ctx.fillText(lines[i], W / 2, y);
-    }
-  }
-
-  function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (img.naturalWidth) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    drawBlock(topEl.value, "top");
-    drawBlock(bottomEl.value, "bottom");
-  }
-
-  img.onload = function () {
-    canvas.width = img.naturalWidth || 600;
-    canvas.height = img.naturalHeight || 600;
-    draw();
-  };
-  img.onerror = function () { setStatus("Couldn't load the template image.", "error"); };
-  img.src = form.dataset.img;
-
-  [topEl, bottomEl].forEach((el) => el.addEventListener("input", draw));
-  if (document.fonts && document.fonts.load) {
-    document.fonts.load("64px Anton").then(draw).catch(function () {});
-  }
-
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     if (!img.naturalWidth) { setStatus("Template still loading…", "error"); return; }
-    setStatus("Rendering…");
+    sel = -1;             // drop selection so handles aren't rendered
+    exporting = true;
+    render();
     canvas.toBlob(async function (blob) {
+      exporting = false;
+      render();
       if (!blob) { setStatus("Could not render the image.", "error"); return; }
       const ctype = "image/png";
       try {
+        setStatus("Uploading…");
         let res = await postJSON(form.dataset.presign, { filename: "meme.png", content_type: ctype });
         if (!res.ok) { setStatus("Presign failed: " + (await res.text()), "error"); return; }
-        const { key, url } = await res.json();
-        setStatus("Uploading…");
-        res = await fetch(url, { method: "PUT", headers: { "Content-Type": ctype }, body: blob });
+        const j = await res.json();
+        res = await fetch(j.url, { method: "PUT", headers: { "Content-Type": ctype }, body: blob });
         if (!res.ok) { setStatus("Upload failed (" + res.status + "). Check bucket CORS.", "error"); return; }
         setStatus("Finalizing…");
-        const title = (topEl.value || bottomEl.value || form.dataset.name || "").trim().slice(0, 120);
-        res = await postJSON(form.dataset.finalize, { key: key, title: title, content_type: ctype, tags: [] });
+        const caption = boxes.map(function (b) { return b.text.trim(); }).filter(Boolean).join(" / ");
+        const title = (caption || form.dataset.name || "").slice(0, 120);
+        res = await postJSON(form.dataset.finalize, { key: j.key, title: title, content_type: ctype, tags: [] });
         if (!res.ok) { setStatus("Finalize failed: " + (await res.text()), "error"); return; }
         const asset = await res.json();
         setStatus("Posted — opening…", "ok");

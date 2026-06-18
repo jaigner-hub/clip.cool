@@ -215,7 +215,8 @@ class TemplateBuilderTests(TestCase):
     def test_builder_page_renders(self):
         r = self.client.get(reverse("clips_builder", args=[self.t.id]))
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "Top text")
+        self.assertContains(r, "Add text")
+        self.assertContains(r, "meme-canvas")
 
     @patch("clips.services.template_image_bytes", return_value=b"\x89PNGfake")
     def test_template_image_proxy_same_origin(self, mock_bytes):

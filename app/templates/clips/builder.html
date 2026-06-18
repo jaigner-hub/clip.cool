@@ -19,15 +19,28 @@
         data-finalize="{% url 'clips_finalize' %}"
         data-name="{{ template.name }}">
     {% csrf_token %}
-    <div class="kg-field">
-      <label for="top">Top text</label>
-      <input type="text" id="top" autocomplete="off" placeholder="TOP TEXT">
-    </div>
-    <div class="kg-field">
-      <label for="bottom">Bottom text</label>
-      <input type="text" id="bottom" autocomplete="off" placeholder="BOTTOM TEXT">
-    </div>
     <div class="kg-row">
+      <button type="button" class="kg-btn kg-btn-sm" id="add-text">+ Add text</button>
+    </div>
+    <p class="kg-muted" id="builder-hint">Drag a text box to place it; drag the blue corner to resize. Add as many as you need.</p>
+
+    <div id="box-panel" hidden>
+      <div class="kg-field">
+        <label for="box-text">Text</label>
+        <textarea id="box-text" rows="2" autocomplete="off"></textarea>
+      </div>
+      <div class="kg-field">
+        <label for="box-size">Size</label>
+        <input type="range" id="box-size" min="3" max="40" value="10">
+      </div>
+      <div class="kg-field">
+        <label for="box-width">Width</label>
+        <input type="range" id="box-width" min="20" max="100" value="80">
+      </div>
+      <button type="button" class="kg-btn kg-btn-sm kg-btn-danger" id="del-box">Delete this text</button>
+    </div>
+
+    <div class="kg-row builder-publish">
       <button type="submit" class="kg-btn" id="publish-btn">Publish</button>
       <a class="kg-btn kg-btn-sm" href="{% url 'clips_create' %}">Cancel</a>
     </div>

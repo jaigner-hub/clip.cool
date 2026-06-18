@@ -20,9 +20,10 @@
   overflow: hidden;
   padding: 8px;
 }
-.builder-canvas { max-width: 100%; height: auto; display: block; }
+.builder-canvas { max-width: 100%; height: auto; display: block; touch-action: none; cursor: move; }
 .builder-controls .kg-field { display: block; margin-bottom: 12px; }
 .builder-controls .kg-field > label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: #1f2937; }
+.builder-controls textarea,
 .builder-controls input[type="text"] {
   width: 100%;
   box-sizing: border-box;
@@ -30,7 +31,17 @@
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font: inherit;
+  resize: vertical;
 }
+.builder-controls input[type="range"] { width: 100%; }
+#box-panel {
+  border: 1px solid #e3e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 10px 0;
+  background: #f8fafc;
+}
+.builder-publish { margin-top: 12px; }
 
 /* Search hero — centered, Google-like; shrinks to the top once a query is run. */
 .clip-search-hero {
