@@ -112,14 +112,19 @@ wait on the `clip.cool` apex DNS. This unblocks the whole edge end-to-end; the a
   Balancer in the clip.cool zone on the shared pool + an `id.clip.cool/admin` Access app. Issuer
   repointed across **clip_web, vent_app (chat), Grafana, GlitchTip** + the blackbox probe. The
   `keygrip` realm + all users are unchanged (only the hostname moved); everyone re-logs in once.
-  `id.vent.dog` stays routed and now reports the new issuer (transparent for stale links).
+- **Old `*.vent.dog` web hosts retired.** `app.vent.dog` + `id.vent.dog` fully removed: out of
+  `clip_web` alt-hosts (`app_alt_hostnames: []`), realm redirect URIs, `cf_ingress`/`cf_ingress2`,
+  `cf_lb_hostnames` (now `[]`); the LB health monitor + `drain.sh` undrain + blackbox probe moved to
+  `clip.cool`; the `id.vent.dog/admin` Access app + both vent.dog-zone Load Balancers deleted via API
+  (the `cloudflare` role only creates, never deletes). Both hosts now NXDOMAIN. `chat.vent.dog`,
+  `livekit.vent.dog`, and the `vent.dog` marketing site are untouched. (Google's old
+  `id.vent.dog/.../broker/google/endpoint` redirect URI can be removed from the Google OAuth client
+  whenever — harmless to leave.)
 
 ## Remaining (not done yet)
 
-1. **Drop the old `*.vent.dog` web hosts** (clip.cool + id.clip.cool are live, dual-served):
-   - `app.vent.dog` — remove from `clip_web` alt-hosts, realm redirect URIs, `cf_lb_hostnames`/ingress;
-     point the `observability` uptime check + `drain.sh` `Host:` header at clip.cool; ramp HSTS.
-   - `id.vent.dog` — once nothing references it, remove its LB/ingress/Access app + realm redirect URIs.
+1. **HSTS ramp** on the clip.cool zone (currently `max_age: 300`; raise once verified, then
+   `include_subdomains`, then `preload` last).
 2. **Video tail:** dedicated heavy-worker tier for AV1, on-demand caption burn-in for downloads,
    captioned grid posters, perceptual `pHash` dedup, prune originals.
 3. **Snipper integration (2c)** — `clip-snipper` device-flow client + pushed captures.
