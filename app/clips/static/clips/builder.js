@@ -239,7 +239,9 @@
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
-    if (!img.naturalWidth) { setStatus("Template still loading…", "error"); return; }
+    // Only burn mode draws the template image; overlay mode exports a transparent text-only PNG
+    // (the backdrop is a separate <video>/<img>), so there's no img to wait on there.
+    if (mode === "burn" && !img.naturalWidth) { setStatus("Template still loading…", "error"); return; }
     sel = -1;             // drop selection so handles aren't rendered
     exporting = true;
     render();
