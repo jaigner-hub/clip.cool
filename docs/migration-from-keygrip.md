@@ -103,14 +103,23 @@ wait on the `clip.cool` apex DNS. This unblocks the whole edge end-to-end; the a
   Verified: clip.cool /readyz ok, public share + GIF links work, id.vent.dog/chat untouched.
 - **Video pipeline (Phase 2a/2b):** GIF/video → ffmpeg AV1/VP9/H.264 + poster + optimized GIF
   (transcode queue, in the shared worker); `<video>` served AV1→VP9→H.264; overlay captioning
-  (editable layers + transparent text PNG, re-editable); public `/c/<id>` share page + `/c/<id>.gif`
-  / `.mp4` links. See `docs/phase2-video-captioning.md`.
+  (editable layers + transparent text PNG, re-editable). See `docs/phase2-video-captioning.md`.
+- **Canonical root URLs:** a clip is `clip.cool/<id>` (one page: humans + OG/Twitter unfurl),
+  `clip.cool/<id>.gif`, `clip.cool/<id>.mp4`; old `/c/<id>*` + `/clips/asset/<id>/` 301 to it. Search
+  IS the root (`/`); `/clips/search/` 301s there. Public **Browse** grid at `/clips/browse/`.
+- **Keycloak issuer migrated `id.vent.dog → id.clip.cool`.** `KC_HOSTNAME` flipped (keycloak.yml now
+  `serial: 1`, rolling); the `cloudflare` role added `id.clip.cool` ingress (both tunnels) + a Load
+  Balancer in the clip.cool zone on the shared pool + an `id.clip.cool/admin` Access app. Issuer
+  repointed across **clip_web, vent_app (chat), Grafana, GlitchTip** + the blackbox probe. The
+  `keygrip` realm + all users are unchanged (only the hostname moved); everyone re-logs in once.
+  `id.vent.dog` stays routed and now reports the new issuer (transparent for stale links).
 
 ## Remaining (not done yet)
 
-1. **Drop `app.vent.dog`** (clip.cool is live, dual-served): remove it from `clip_web` alt-hosts,
-   realm redirect URIs, `cf_lb_hostnames`/ingress; point the `observability` uptime check +
-   `drain.sh` `Host:` header at clip.cool; ramp HSTS on the clip.cool zone.
+1. **Drop the old `*.vent.dog` web hosts** (clip.cool + id.clip.cool are live, dual-served):
+   - `app.vent.dog` — remove from `clip_web` alt-hosts, realm redirect URIs, `cf_lb_hostnames`/ingress;
+     point the `observability` uptime check + `drain.sh` `Host:` header at clip.cool; ramp HSTS.
+   - `id.vent.dog` — once nothing references it, remove its LB/ingress/Access app + realm redirect URIs.
 2. **Video tail:** dedicated heavy-worker tier for AV1, on-demand caption burn-in for downloads,
    captioned grid posters, perceptual `pHash` dedup, prune originals.
 3. **Snipper integration (2c)** — `clip-snipper` device-flow client + pushed captures.
