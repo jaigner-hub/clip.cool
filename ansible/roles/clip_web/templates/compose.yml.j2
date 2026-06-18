@@ -52,7 +52,8 @@ x-app-env: &app_env
   R2_S3_API_ENDPOINT: ${R2_S3_API_ENDPOINT:-}
   R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
   R2_API_TOKEN: ${R2_API_TOKEN:-}
-  R2_PUBLIC_BASE: ${R2_PUBLIC_BASE:-}
+  # The app reads R2_PUBLIC_BASE; the stash key is named R2_PUBLIC_URL — map it here.
+  R2_PUBLIC_BASE: ${R2_PUBLIC_URL:-}
   # --- Typesense (search; docs/architecture.md). Host is the edge-net name on vent.dog; vent.dog2
   # overrides search_host to vent.dog's tailnet IP (inventory.yml). Key comes from stash. ---
   TYPESENSE_HOST: "{{ search_host }}"
