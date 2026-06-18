@@ -1,5 +1,68 @@
 /* clip.cool search/upload surfaces. Self-hosted (CSP script/style-src 'self'). */
 
+/* Search hero — centered, Google-like; shrinks to the top once a query is run. */
+.clip-search-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding-top: 13vh;
+  padding-bottom: 8px;
+}
+.clip-search-hero.is-compact { padding-top: 8px; }
+
+.clip-search-brand {
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: #1f2937;
+  text-decoration: none;
+  margin-bottom: 22px;
+}
+.clip-search-hero.is-compact .clip-search-brand { font-size: 24px; margin-bottom: 14px; }
+
+.clip-searchbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 620px;
+  background: #fff;
+  border: 1px solid #d4dae1;
+  border-radius: 999px;
+  padding: 5px 5px 5px 22px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.clip-searchbar:focus-within {
+  border-color: #94a3b8;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+}
+.clip-searchbar input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 17px;
+  padding: 12px 6px;
+  color: #1f2937;
+}
+.clip-search-btn {
+  flex: none;
+  border: none;
+  cursor: pointer;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  border-radius: 999px;
+  padding: 11px 24px;
+}
+.clip-search-btn:hover { background: #1d4ed8; }
+.clip-search-tagline { color: #64748b; font-size: 14px; margin-top: 18px; }
+
 .clip-grid {
   list-style: none;
   margin: 16px 0 0;

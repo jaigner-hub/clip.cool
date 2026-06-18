@@ -3,23 +3,22 @@
 {% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
 {% block title %}Search · clip.cool{% endblock %}
 {% block app_content %}
-<div class="kg-page-head">
-  <h1 class="kg-title">Search</h1>
-  <p class="kg-sub">Matches titles, tags, and text read out of the image (OCR). Typo-tolerant.</p>
-  <a class="kg-btn kg-btn-sm" href="{% url 'clips_upload' %}">Upload</a>
+<div class="clip-search-hero{% if q %} is-compact{% endif %}">
+  <a class="clip-search-brand" href="{% url 'clips_search' %}">clip.cool</a>
+  <form method="get" action="{% url 'clips_search' %}" class="clip-searchbar" role="search">
+    <input type="search" name="q" value="{{ q }}" autofocus autocomplete="off"
+           aria-label="Search clips" placeholder="Search by what's said, what's on screen, or your tags…">
+    <button type="submit" class="clip-search-btn">Search</button>
+  </form>
+  {% if not q %}<p class="clip-search-tagline">Find a clip by the text in it, what's happening on screen, or your tags. Typo-tolerant.</p>{% endif %}
 </div>
-
-<form method="get" action="{% url 'clips_search' %}" class="kg-search">
-  <input type="search" name="q" value="{{ q }}" placeholder="Search clips…" autofocus>
-  <button type="submit" class="kg-btn">Search</button>
-</form>
 
 {% if q %}
   {% if results %}
   <ul class="clip-grid">
     {% for r in results %}
     <li class="clip-card">
-      <a href="{{ r.url }}" target="_blank" rel="noopener" title="{{ r.description }}">
+      <a href="{% url 'clips_asset' r.id %}" title="{{ r.description }}">
         <img class="clip-thumb" src="{{ r.poster_url }}" alt="{{ r.description|default:r.title|default:'clip' }}" loading="lazy">
       </a>
       <div class="clip-meta">
@@ -33,13 +32,8 @@
   {% else %}
   <div class="kg-empty">
     <p class="kg-empty-title">No matches for “{{ q }}”</p>
-    <p class="kg-muted">Try fewer words, or a word visible in the image.</p>
+    <p class="kg-muted">Try fewer words, a tag, or something visible in the clip.</p>
   </div>
   {% endif %}
-{% else %}
-<div class="kg-empty">
-  <p class="kg-empty-title">Search your clips</p>
-  <p class="kg-muted">Results show title, tags, and OCR'd text matches.</p>
-</div>
 {% endif %}
 {% endblock %}
