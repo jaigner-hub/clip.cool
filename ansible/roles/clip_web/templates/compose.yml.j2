@@ -100,7 +100,7 @@ services:
       context: ./src
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: ["python", "manage.py", "procrastinate", "worker", "--queues", "default,index,thumbs"]
+    command: ["python", "manage.py", "procrastinate", "worker", "--queues", "default,index,thumbs,transcode"]
     environment:
       <<: *app_env
       OTEL_SERVICE_NAME: clip-worker   # trace service.name for the queue tier (ADR 0015)

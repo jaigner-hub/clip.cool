@@ -12,8 +12,8 @@
       data-finalize-url="{% url 'clips_finalize' %}"
       data-search-url="{% url 'clips_search' %}">
   <div class="kg-field">
-    <label for="clip-file">Image</label>
-    <input type="file" id="clip-file" accept="image/*" required>
+    <label for="clip-file">Image, GIF, or video</label>
+    <input type="file" id="clip-file" accept="image/*,video/mp4,video/webm,video/quicktime" required>
   </div>
   <div class="kg-field">
     <label for="clip-title">Title <span class="kg-muted">(optional)</span></label>

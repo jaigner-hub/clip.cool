@@ -67,6 +67,7 @@ class CSPMiddleware:
             script_src,
             style_src,
             " ".join(["img-src 'self' data:", *img_extra]),
+            " ".join(["media-src 'self'", *img_extra]),   # <video> renditions served from R2
             "font-src 'self'",
             connect_src,
             "object-src 'none'",

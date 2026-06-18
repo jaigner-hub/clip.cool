@@ -37,7 +37,7 @@ class FinalizeTests(TestCase):
     def test_finalize_leaves_title_blank_when_unnamed(self, mock_task):
         # WHY: we never expose/store the original filename — an unnamed upload has a blank title
         # (it's still findable by OCR text + tags), not the filename.
-        asset = services.finalize_asset(self.user, key="originals/deadbeef.gif", content_type="image/gif")
+        asset = services.finalize_asset(self.user, key="originals/deadbeef.png", content_type="image/png")
         self.assertEqual(asset.title, "")
 
     @patch("clips.services.storage")
@@ -246,3 +246,42 @@ class VisibilityTests(TestCase):
         a.refresh_from_db()
         self.assertFalse(a.is_public)
         mock_search.upsert.assert_called_once()
+
+
+class VideoIngestTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("vid@example.com", "vid@example.com")
+
+    def test_media_type_detection(self):
+        self.assertEqual(services._media_type("video/mp4"), Asset.MediaType.VIDEO)
+        self.assertEqual(services._media_type("image/gif"), Asset.MediaType.VIDEO)   # GIF → video
+        self.assertEqual(services._media_type("image/png"), Asset.MediaType.IMAGE)
+
+    @patch("clips.tasks.transcode_asset")
+    @patch("clips.tasks.process_asset")
+    def test_video_finalize_routes_to_transcode(self, mock_process, mock_transcode):
+        # WHY: video/GIF go to the ffmpeg transcode tier, not the image poster/OCR path.
+        a = services.finalize_asset(self.user, key="originals/x.gif", content_type="image/gif")
+        self.assertEqual(a.media_type, Asset.MediaType.VIDEO)
+        mock_transcode.defer.assert_called_once_with(asset_id=str(a.id))
+        mock_process.defer.assert_not_called()
+
+    @patch("clips.tasks.transcode_asset")
+    @patch("clips.tasks.process_asset")
+    def test_image_finalize_routes_to_process(self, mock_process, mock_transcode):
+        a = services.finalize_asset(self.user, key="originals/x.png", content_type="image/png")
+        self.assertEqual(a.media_type, Asset.MediaType.IMAGE)
+        mock_process.defer.assert_called_once_with(asset_id=str(a.id))
+        mock_transcode.defer.assert_not_called()
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + k)
+    def test_video_sources_ordered_av1_vp9_h264(self, mock_url):
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4",
+                                 media_type=Asset.MediaType.VIDEO, status=Asset.Status.READY)
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="r/h", mime="video/mp4")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.AV1, r2_key="r/a", mime="video/mp4")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.VP9, r2_key="r/v", mime="video/webm")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.POSTER, r2_key="r/p", mime="image/webp")
+        kinds = [s["kind"] for s in services.video_sources(a)]
+        self.assertEqual(kinds, ["av1", "vp9", "h264"])   # ordered, poster excluded

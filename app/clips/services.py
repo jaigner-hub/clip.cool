@@ -12,20 +12,30 @@ import hashlib
 import io
 import logging
 import mimetypes
+import os
 import re
+import tempfile
 import uuid
 
 from django.conf import settings
 
 from . import search, storage
-from .models import Asset, Template
+from .models import Asset, Rendition, Template
 
 logger = logging.getLogger(__name__)
 
-# The image slice. Video (.mp4/.webm and GIF→video) arrives with the transcode tier later.
+# Static images stay images; GIFs + real video transcode to looping video (docs/architecture.md).
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif",
+    "video/mp4", "video/webm", "video/quicktime",
 }
+# Content types that become a video Asset (transcoded). GIF is an image type but we never serve it
+# as a GIF — it transcodes like any video ("never serve a GIF as a GIF").
+VIDEO_CONTENT_TYPES = {"image/gif", "video/mp4", "video/webm", "video/quicktime"}
+
+
+def _media_type(content_type):
+    return Asset.MediaType.VIDEO if content_type in VIDEO_CONTENT_TYPES else Asset.MediaType.IMAGE
 
 
 def _ext_for(filename, content_type):
@@ -58,20 +68,25 @@ def finalize_asset(user, *, key, title="", content_type="", tags=None):
     """Record the uploaded object as an Asset(pending) and enqueue async processing."""
     if not key:
         raise ValueError("key is required")
+    media_type = _media_type(content_type)
     asset = Asset.objects.create(
         owner=user,
         original_key=key,
         mime=content_type or "",
+        media_type=media_type,
         title=(title or "").strip(),   # blank unless the user named it — never the filename
         tags=list(tags or []),
         status=Asset.Status.PENDING,
     )
-    # Deferred import: tasks.py pulls in procrastinate; keep it off the import path of callers
-    # (e.g. the web request) until actually needed.
-    from .tasks import process_asset
-
-    process_asset.defer(asset_id=str(asset.id))
-    logger.info("clips: finalized asset %s (owner=%s)", asset.id, getattr(user, "pk", None))
+    # Deferred import: tasks.py pulls in procrastinate; keep it off the import path of callers.
+    # Video → transcode tier (ffmpeg); image → the lightweight poster/OCR path.
+    if media_type == Asset.MediaType.VIDEO:
+        from .tasks import transcode_asset
+        transcode_asset.defer(asset_id=str(asset.id))
+    else:
+        from .tasks import process_asset
+        process_asset.defer(asset_id=str(asset.id))
+    logger.info("clips: finalized %s asset %s (owner=%s)", media_type, asset.id, getattr(user, "pk", None))
     return asset
 
 
@@ -98,6 +113,63 @@ def process_asset(asset_id):
     except Exception:
         logger.error("clips.process_asset failed for %s", asset_id, exc_info=True)
         Asset.objects.filter(pk=asset_id).update(status=Asset.Status.FAILED)
+
+
+def transcode_asset(asset_id):
+    """Heavy worker step (transcode queue): download original → ffmpeg AV1/VP9/H.264 + poster →
+    upload to R2 + Rendition rows → ready → index + autodescribe. Best-effort per rendition."""
+    asset = Asset.objects.filter(pk=asset_id).first()
+    if asset is None:
+        return
+    from . import transcode as tc
+
+    Asset.objects.filter(pk=asset_id).update(status=Asset.Status.TRANSCODING)
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "src")
+            data = storage.download_bytes(asset.original_key)
+            with open(src, "wb") as f:
+                f.write(data)
+            asset.bytes = len(data)
+            asset.sha256 = hashlib.sha256(data).hexdigest()
+            result = tc.transcode(src, td)
+            for r in result["renditions"]:
+                rdata = open(r["path"], "rb").read()
+                rkey = "renditions/%s/%s" % (asset.id, os.path.basename(r["path"]))
+                storage.upload_bytes(rkey, rdata, r["mime"])
+                Rendition.objects.update_or_create(
+                    asset=asset, kind=r["kind"],
+                    defaults={"r2_key": rkey, "mime": r["mime"], "bytes": len(rdata)},
+                )
+            if result["poster"]:
+                pdata = open(result["poster"], "rb").read()
+                pkey = "posters/%s.webp" % asset.id
+                storage.upload_bytes(pkey, pdata, "image/webp")
+                asset.poster_key = pkey
+            meta = result["meta"]
+            asset.width = meta.get("width") or asset.width
+            asset.height = meta.get("height") or asset.height
+            asset.duration = meta.get("duration")
+            asset.has_audio = bool(meta.get("has_audio"))
+        asset.status = Asset.Status.READY
+        asset.save()
+        search.upsert(asset)
+        if getattr(settings, "OPENROUTER_API_KEY", ""):
+            from .tasks import autodescribe_asset
+            autodescribe_asset.defer(asset_id=str(asset.id))
+        logger.info("clips: transcoded %s (%d renditions)", asset.id, len(result["renditions"]))
+    except Exception:
+        logger.error("clips.transcode_asset failed for %s", asset_id, exc_info=True)
+        Asset.objects.filter(pk=asset_id).update(status=Asset.Status.FAILED)
+
+
+def video_sources(asset):
+    """Ordered <video> sources (AV1 → VP9 → H.264) for a video asset. Queries renditions, so call
+    only on the detail page, not for every search/library card."""
+    order = {Rendition.Kind.AV1: 0, Rendition.Kind.VP9: 1, Rendition.Kind.H264: 2}
+    rends = [r for r in asset.renditions.all() if r.kind in order]
+    rends.sort(key=lambda r: order[r.kind])
+    return [{"kind": r.kind, "url": storage.public_url(r.r2_key), "mime": r.mime} for r in rends]
 
 
 def autodescribe_asset(asset_id, *, force_title=False):
@@ -338,6 +410,7 @@ def serialize(asset):
         "title": asset.title or "",
         "description": asset.description or "",
         "status": asset.status,
+        "media_type": asset.media_type,
         "mime": asset.mime or "",
         "width": asset.width,
         "height": asset.height,

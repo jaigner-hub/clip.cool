@@ -12,6 +12,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from . import services
+from .models import Asset
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,10 @@ def asset_detail(request, asset_id):
     asset = services.get_asset_for(request.user, asset_id)
     if asset is None:
         raise Http404("Clip not found.")
+    a = services.serialize(asset)
+    sources = services.video_sources(asset) if asset.media_type == Asset.MediaType.VIDEO else []
     return render(request, "clips/detail.html", {
-        "active_page": "clips_library", "asset": asset, "a": services.serialize(asset),
+        "active_page": "clips_library", "asset": asset, "a": a, "sources": sources,
     })
 
 

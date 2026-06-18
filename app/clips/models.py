@@ -14,9 +14,14 @@ from django.db import models
 
 class Asset(models.Model):
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending"   # uploaded, awaiting processing
-        READY = "ready", "Ready"         # processed + indexed
+        PENDING = "pending", "Pending"          # uploaded, awaiting processing
+        TRANSCODING = "transcoding", "Transcoding"  # video: ffmpeg renditions in progress
+        READY = "ready", "Ready"                # processed + indexed
         FAILED = "failed", "Failed"
+
+    class MediaType(models.TextChoices):
+        IMAGE = "image", "Image"
+        VIDEO = "video", "Video"   # incl. GIFs — we transcode them to looping video
 
     # UUID primary key: it doubles as the public id and the basis of the R2 object keys, so it must
     # be unguessable and stable (not a sequential int).
@@ -30,9 +35,12 @@ class Asset(models.Model):
     poster_key = models.CharField(max_length=512, blank=True)
 
     mime = models.CharField(max_length=128, blank=True)
+    media_type = models.CharField(max_length=8, choices=MediaType.choices, default=MediaType.IMAGE)
     width = models.PositiveIntegerField(null=True, blank=True)
     height = models.PositiveIntegerField(null=True, blank=True)
     bytes = models.PositiveBigIntegerField(null=True, blank=True)
+    duration = models.FloatField(null=True, blank=True)   # seconds (video)
+    has_audio = models.BooleanField(default=False)
     # sha256 of the original bytes — exact-duplicate detection (perceptual pHash dedup is a later
     # follow-up, docs/architecture.md). Indexed so a future collapse can look up by hash.
     sha256 = models.CharField(max_length=64, blank=True, db_index=True)
@@ -56,6 +64,35 @@ class Asset(models.Model):
 
     def __str__(self):
         return self.title or str(self.id)
+
+
+class Rendition(models.Model):
+    """A transcoded output of a video Asset (docs/phase2-video-captioning.md). One Asset → many
+    renditions: the modern codecs (AV1 → VP9 → H.264) served as <video> <source>s, plus poster /
+    scrub-sprite. Bytes live in R2; this is metadata only."""
+    class Kind(models.TextChoices):
+        AV1 = "av1", "AV1"
+        VP9 = "vp9", "VP9"
+        H264 = "h264", "H.264"
+        POSTER = "poster", "Poster"
+        SPRITE = "sprite", "Scrub sprite"
+
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name="renditions")
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    r2_key = models.CharField(max_length=512)
+    mime = models.CharField(max_length=128, blank=True)
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    bytes = models.PositiveBigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["asset", "kind"], name="uniq_asset_rendition_kind"),
+        ]
+
+    def __str__(self):
+        return f"{self.asset_id}:{self.kind}"
 
 
 class Template(models.Model):

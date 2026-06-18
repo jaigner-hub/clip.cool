@@ -15,6 +15,11 @@ def process_asset(asset_id: str) -> None:
     services.process_asset(asset_id)
 
 
+@app.task(queue="transcode")
+def transcode_asset(asset_id: str) -> None:
+    services.transcode_asset(asset_id)
+
+
 @app.task(queue="index")
 def index_asset(asset_id: str) -> None:
     services.index_asset(asset_id)

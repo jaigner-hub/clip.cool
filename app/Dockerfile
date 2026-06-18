@@ -5,10 +5,11 @@ ENV PYTHONUNBUFFERED=1 \
     DJANGO_SETTINGS_MODULE=keygrip.settings.prod
 
 WORKDIR /app
-# curl: health/debug. tesseract-ocr: OCR of burned-in text on the `index` queue (clips.tasks).
-# ffmpeg/svt-av1 (the video transcode tier) come with the heavy-worker image later — not here.
+# curl: health/debug. tesseract-ocr: OCR (index queue). ffmpeg: video transcode tier
+# (AV1/VP9/H.264 + poster) on the `transcode` queue — Debian's ffmpeg includes libsvtav1/libvpx/
+# libx264. Heavy; a dedicated worker tier can be split out later (docs/phase2-video-captioning.md).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl tesseract-ocr \
+ && apt-get install -y --no-install-recommends curl tesseract-ocr ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
