@@ -264,3 +264,14 @@
 }
 .tag-x:hover { color: #ef4444; }
 .tag-add { border: none; outline: none; flex: 1; min-width: 120px; font: inherit; padding: 3px 2px; }
+
+/* Tab recorder (clips/record.html): live preview + captured-clip playback. */
+.clip-record-video {
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+  display: block;
+  margin: 12px 0;
+  background: #0b1220;
+  border-radius: 10px;
+}

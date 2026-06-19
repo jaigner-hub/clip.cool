@@ -67,7 +67,9 @@ class CSPMiddleware:
             script_src,
             style_src,
             " ".join(["img-src 'self' data:", *img_extra]),
-            " ".join(["media-src 'self'", *img_extra]),   # <video> renditions served from R2
+            # <video>: R2 renditions (img_extra) + blob: so the tab-recorder can preview the
+            # just-captured clip (URL.createObjectURL) before it's uploaded.
+            " ".join(["media-src 'self' blob:", *img_extra]),
             "font-src 'self'",
             connect_src,
             "object-src 'none'",

@@ -184,6 +184,15 @@ def upload_page(request):
 
 
 @login_required
+@ensure_csrf_cookie  # so clips/record.js can read the csrftoken cookie for its POSTs
+def record_page(request):
+    """In-browser tab recorder: share a tab (getDisplayMedia) → record the moment → upload the
+    captured webm through the same presign/finalize path as a file upload. No backend ingest
+    changes — MediaRecorder emits video/webm, which finalize routes to the transcode queue."""
+    return render(request, "clips/record.html", {"active_page": "clips_record"})
+
+
+@login_required
 @require_POST
 def presign(request):
     """JSON: {filename, content_type} → {key, url, method, headers} for a direct-to-R2 PUT."""

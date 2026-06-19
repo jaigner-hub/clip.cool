@@ -22,6 +22,7 @@ urlpatterns = [
 
     path("clips/", views.library, name="clips_library"),
     path("clips/upload/", views.upload_page, name="clips_upload"),
+    path("clips/record/", views.record_page, name="clips_record"),
     path("clips/upload/presign", views.presign, name="clips_presign"),
     path("clips/upload/finalize", views.finalize, name="clips_finalize"),
     path("clips/search/", RedirectView.as_view(pattern_name="clips_search", query_string=True, permanent=True)),

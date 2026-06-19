@@ -1,0 +1,55 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block title %}Record a tab · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">Record a tab</h1>
+  <p class="kg-sub">Share a browser tab (your video, a stream, anything you can watch), capture the
+    moment, and we'll turn it into a looping clip. Tip: tick <em>“Also share tab audio”</em> in the
+    picker if you want sound.</p>
+</div>
+
+<div id="clip-record" class="kg-panel"
+     data-presign-url="{% url 'clips_presign' %}"
+     data-finalize-url="{% url 'clips_finalize' %}"
+     data-search-url="{% url 'clips_search' %}"
+     data-max-seconds="60">
+
+  <div class="kg-field">
+    <button type="button" id="record-share" class="kg-btn">Share a browser tab</button>
+    <p class="kg-muted" id="record-hint">Pick the tab you want to clip, then Record when your moment starts.</p>
+  </div>
+
+  {# Live view of the shared tab (srcObject = MediaStream; not a URL, so no CSP media-src concern). #}
+  <video id="record-preview" class="clip-record-video" muted autoplay playsinline hidden></video>
+
+  {# Playback of the captured clip (blob: URL — allowed by media-src blob:). #}
+  <video id="record-playback" class="clip-record-video" controls playsinline hidden></video>
+
+  <div class="kg-row" id="record-controls" hidden>
+    <button type="button" id="record-start" class="kg-btn">● Record</button>
+    <button type="button" id="record-stop" class="kg-btn" hidden>■ Stop</button>
+    <button type="button" id="record-reset" class="kg-btn kg-btn-sm" hidden>Re-record</button>
+    <span id="record-timer" class="kg-muted" aria-live="polite"></span>
+  </div>
+
+  <div id="record-meta" hidden>
+    <div class="kg-field">
+      <label for="record-title">Title <span class="kg-muted">(optional)</span></label>
+      <input type="text" id="record-title" maxlength="255" placeholder="e.g. the perfect reaction">
+    </div>
+    <div class="kg-field">
+      <label for="record-tags">Tags <span class="kg-muted">(comma-separated, optional)</span></label>
+      <input type="text" id="record-tags" placeholder="reaction, funny">
+    </div>
+    <div class="kg-row">
+      <button type="button" id="record-upload" class="kg-btn">Upload clip</button>
+      <a class="kg-btn kg-btn-sm" href="{% url 'clips_search' %}">Search</a>
+    </div>
+  </div>
+
+  <p id="record-status" class="kg-status" role="status" aria-live="polite"></p>
+</div>
+
+<script src="{% static 'clips/record.js' %}" defer></script>
+{% endblock %}
