@@ -17,7 +17,10 @@ import re
 import tempfile
 import uuid
 
+from datetime import timedelta
+
 from django.conf import settings
+from django.utils import timezone
 
 from . import search, storage
 from .models import Asset, Rendition, Template
@@ -170,7 +173,9 @@ def transcode_asset(asset_id):
         return
     from . import transcode as tc
 
-    Asset.objects.filter(pk=asset_id).update(status=Asset.Status.TRANSCODING)
+    # Stamp updated_at as we start so the reaper can tell a long-dead encode (status stuck
+    # TRANSCODING, timestamp old) from one that's actively running.
+    Asset.objects.filter(pk=asset_id).update(status=Asset.Status.TRANSCODING, updated_at=timezone.now())
     try:
         with tempfile.TemporaryDirectory() as td:
             src = os.path.join(td, "src")
@@ -212,6 +217,7 @@ def transcode_asset(asset_id):
             asset.duration = meta.get("duration")
             asset.has_audio = bool(meta.get("has_audio"))
         asset.status = Asset.Status.READY
+        asset.transcode_attempts = 0   # clear the reaper counter on a clean encode
         asset.save()
         search.upsert(asset)
         if getattr(settings, "OPENROUTER_API_KEY", ""):
@@ -609,6 +615,39 @@ def save_caption(user, asset_id, *, text_key, layers):
     return asset
 
 
+def reap_stuck_assets(stuck_minutes=10, max_attempts=3):
+    """Recover assets whose worker died mid-job (e.g. a deploy recreated worker-transcode and a
+    `doing` job was left orphaned — the encode never finishes and the asset sits in TRANSCODING /
+    caption_burning forever). Run periodically off a light queue.
+
+    A genuinely un-encodable clip does NOT get stuck here — transcode_asset catches ffmpeg errors and
+    marks the asset FAILED — so this only re-queues true orphans, and even then bounds retries so a
+    pathological input can't loop (it's marked FAILED after max_attempts). Returns the count actioned."""
+    cutoff = timezone.now() - timedelta(minutes=stuck_minutes)
+    from .tasks import transcode_asset, burn_caption_asset
+    n = 0
+    # Orphaned encodes: stuck in TRANSCODING past the cutoff (real encodes finish in << stuck_minutes).
+    for a in Asset.objects.filter(status=Asset.Status.TRANSCODING, updated_at__lt=cutoff):
+        if a.transcode_attempts >= max_attempts:
+            Asset.objects.filter(pk=a.pk).update(status=Asset.Status.FAILED)
+            logger.error("reap: asset %s stuck after %d transcode attempts → marking FAILED", a.pk, a.transcode_attempts)
+            continue
+        Asset.objects.filter(pk=a.pk).update(
+            status=Asset.Status.PENDING, transcode_attempts=a.transcode_attempts + 1, updated_at=timezone.now())
+        transcode_asset.defer(asset_id=str(a.pk))
+        logger.warning("reap: re-queued stuck transcode %s (attempt %d)", a.pk, a.transcode_attempts + 1)
+        n += 1
+    # Orphaned caption burns: caption_burning never cleared (the burn worker died mid-job).
+    for a in Asset.objects.filter(caption_burning=True, updated_at__lt=cutoff):
+        Asset.objects.filter(pk=a.pk).update(updated_at=timezone.now())   # so we don't re-reap next tick
+        burn_caption_asset.defer(asset_id=str(a.pk))
+        logger.warning("reap: re-queued stuck caption burn %s", a.pk)
+        n += 1
+    if n:
+        logger.info("reap: re-queued %d stuck asset(s)", n)
+    return n
+
+
 def regenerate_asset(user, asset_id):
     """Re-run vision auto-describe on demand (owner/superuser). Overwrites title + description and
     re-merges tags. Returns the asset, or None if not found/allowed."""
@@ -634,7 +673,12 @@ def serialize(asset):
         "tags": list(asset.tags or []),
         "is_public": asset.is_public,
         "url": storage.public_url(asset.original_key),
-        "poster_url": storage.public_url(asset.poster_key or asset.original_key),
+        # Poster: the generated WebP when present. Before it exists, fall back to the original ONLY for
+        # images (a renderable thumb); for a video the original is a .webm that can't be an <img>, so
+        # return "" and let the grid/detail show a "transcoding…" placeholder instead of a broken img.
+        "poster_url": storage.public_url(
+            asset.poster_key or (asset.original_key if asset.media_type == Asset.MediaType.IMAGE else "")
+        ) if (asset.poster_key or asset.media_type == Asset.MediaType.IMAGE) else "",
         "text_layer_url": storage.public_url(asset.text_layer_key) if asset.text_layer_key else "",
         "created_at": asset.created_at,
     }

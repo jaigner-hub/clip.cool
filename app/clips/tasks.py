@@ -54,3 +54,12 @@ def index_asset(asset_id: str) -> None:
 @_db_fresh
 def autodescribe_asset(asset_id: str, force_title: bool = False) -> None:
     services.autodescribe_asset(asset_id, force_title=force_title)
+
+
+# Self-healing: every 5 min, recover assets whose worker died mid-job (orphaned `doing` job left by a
+# deploy recreating worker-transcode). Runs on the light `index` queue. See services.reap_stuck_assets.
+@app.periodic(cron="*/5 * * * *")
+@app.task(queue="index", name="reap_stuck_assets")
+@_db_fresh
+def reap_stuck_assets(timestamp: int) -> None:
+    services.reap_stuck_assets()

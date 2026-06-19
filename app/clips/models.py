@@ -69,6 +69,9 @@ class Asset(models.Model):
     # True while the worker is (re)baking the caption into the downloadable + GIF renditions, so the
     # detail page can show progress. The on-platform player overlays the PNG live, so it's unaffected.
     caption_burning = models.BooleanField(default=False)
+    # How many times the stuck-asset reaper has re-queued this asset's transcode. Bounds retries so a
+    # genuinely un-encodable clip can't loop forever (it's marked failed instead). Reset on success.
+    transcode_attempts = models.PositiveSmallIntegerField(default=0)
 
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     # Public clips are searchable by everyone (the shared catalog); private = owner-only.
