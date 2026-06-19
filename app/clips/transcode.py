@@ -60,7 +60,9 @@ def burn_caption(src_path, overlay_path, workdir, video=True):
     args = ["ffmpeg", "-y", "-i", src_path, "-i", overlay_path,
             "-filter_complex", "[0:v][1:v]overlay=0:0"]
     if video:
-        args += ["-c:v", "libx264", "-crf", "23", "-preset", "medium", "-pix_fmt", "yuv420p",
+        # -preset veryfast: the captioned file is only for download/off-platform share, so speed beats
+        # a few % size here (the on-platform clip is the clean H.264 + live overlay, untouched).
+        args += ["-c:v", "libx264", "-crf", "23", "-preset", "veryfast", "-pix_fmt", "yuv420p",
                  "-movflags", "+faststart", "-an", out]
     else:
         args += ["-frames:v", "1", out]
@@ -141,14 +143,14 @@ def make_gif(src_path, out_path, crop_filter=None, seek_pre=None, seek_post=None
     of a raw GIF. Reused by the transcode pass and by caption burn-in (so the shareable GIF carries
     the caption). `crop_filter` is an optional leading ffmpeg `crop=...`; seek_pre/seek_post carry a
     trim (used at transcode; a caption burn passes an already-cropped+trimmed source so they're omitted)."""
-    # Highest-quality GIF ffmpeg can do: a PER-FRAME local palette (palettegen stats_mode=single →
-    # paletteuse new=1) so every frame gets its own best 256 colours instead of one palette shared
-    # across the whole clip — the big quality lever short of a dedicated encoder (gifski). 20fps,
-    # 640px, fine Bayer dither. GIF is still 8-bit, so dark gradients band somewhat; this minimises it.
-    # Larger files than a global palette, but quality > size for the GIF fallback.
+    # One good global palette for the clip (palettegen stats_mode=diff → weighted to the moving
+    # regions), fine Bayer dither, diff_mode=rectangle (only changed areas re-dithered → faster +
+    # smaller). 20fps, 640px. A per-frame palette (stats_mode=single/new=1) looks marginally better but
+    # is FAR slower — it recomputes a palette every frame, which made caption burns of long clips take
+    # minutes. GIF is 8-bit so dark gradients still band; the <video> is the quality path.
     vf = _vf(crop_filter, "fps=20", "scale='min(640,iw)':-2:flags=lanczos") + \
-        ",split[s0][s1];[s0]palettegen=stats_mode=single[p];" \
-        "[s1][p]paletteuse=new=1:dither=bayer:bayer_scale=5"
+        ",split[s0][s1];[s0]palettegen=stats_mode=diff[p];" \
+        "[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
     _run(["ffmpeg", "-y", *(seek_pre or []), "-i", src_path, *(seek_post or []), "-vf", vf, out_path])
     _optimize_gif(out_path)
     return out_path
