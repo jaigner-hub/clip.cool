@@ -7,9 +7,11 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 # curl: health/debug. tesseract-ocr: OCR (index queue). ffmpeg: video transcode tier
 # (AV1/VP9/H.264 + poster) on the `transcode` queue — Debian's ffmpeg includes libsvtav1/libvpx/
-# libx264. Heavy; a dedicated worker tier can be split out later (docs/phase2-video-captioning.md).
+# libx264. gifsicle: lossless (-O3) + gentle lossy GIF re-compression post-pass so the chat GIF
+# (Discord/Signal only autoplay-loop real GIFs) is small without an obvious quality drop.
+# Heavy; a dedicated worker tier can be split out later (docs/phase2-video-captioning.md).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl tesseract-ocr ffmpeg \
+ && apt-get install -y --no-install-recommends curl tesseract-ocr ffmpeg gifsicle \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

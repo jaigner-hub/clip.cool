@@ -105,6 +105,29 @@ def _seek(trim):
     return pre, post
 
 
+# gifsicle --lossy level for the GIF re-compression pass. Higher = smaller + more artifacts; ~80 is
+# a strong meme sweet spot (big size cut, loss barely visible on video-derived GIFs). Tune here.
+GIF_LOSSY = 80
+
+
+def _optimize_gif(path):
+    """Shrink the GIF in place with gifsicle: -O3 (fully lossless re-pack) + --lossy (gentle, near-
+    invisible) so the chat GIF is small. Best-effort — if gifsicle is missing or errors, keep the
+    ffmpeg GIF untouched."""
+    tmp = path + ".opt"
+    try:
+        _run(["gifsicle", "-O3", "--lossy=%d" % GIF_LOSSY, path, "-o", tmp])
+        os.replace(tmp, path)
+    except FileNotFoundError:
+        logger.info("gifsicle not installed; skipping GIF re-compression")
+    except Exception:
+        logger.warning("gifsicle optimization failed; using the unoptimized GIF", exc_info=True)
+        try:
+            os.path.exists(tmp) and os.remove(tmp)
+        except OSError:
+            pass
+
+
 def make_gif(src_path, out_path, crop_filter=None, seek_pre=None, seek_post=None):
     """Optimized animated GIF (15fps, downscaled, palette-optimized) for chat autoplay — a fraction
     of a raw GIF. Reused by the transcode pass and by caption burn-in (so the shareable GIF carries
@@ -117,6 +140,7 @@ def make_gif(src_path, out_path, crop_filter=None, seek_pre=None, seek_post=None
         ",split[s0][s1];[s0]palettegen=stats_mode=diff[p];" \
         "[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
     _run(["ffmpeg", "-y", *(seek_pre or []), "-i", src_path, *(seek_post or []), "-vf", vf, out_path])
+    _optimize_gif(out_path)
     return out_path
 
 
