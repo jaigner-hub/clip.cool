@@ -1,5 +1,6 @@
 {% extends "app_base.html" %}
 {% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
 {% block title %}Record a tab · clip.cool{% endblock %}
 {% block app_content %}
 <div class="kg-page-head">
@@ -20,7 +21,7 @@
     <p class="kg-muted" id="record-hint">Pick the tab you want to clip, then Record when your moment starts.</p>
   </div>
 
-  {# Live view of the shared tab + a crop overlay you can drag a selection on (single-line {# #} only). #}
+  {# Live view of the shared tab, plus a drag-to-crop overlay canvas. #}
   <div id="record-stage" class="clip-record-stage" hidden>
     <video id="record-preview" class="clip-record-video" muted autoplay playsinline></video>
     <canvas id="record-crop" class="clip-crop-overlay"></canvas>

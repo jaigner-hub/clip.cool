@@ -230,14 +230,20 @@
   async function share() {
     resetClip();
     setStatus("");
+    // Conditional Focus (Chromium): keep focus on clip.cool instead of jumping to the captured tab.
+    let controller = null;
+    try { if (typeof CaptureController !== "undefined") controller = new CaptureController(); } catch (e) { controller = null; }
+    const opts = { video: { frameRate: 30 }, audio: true };  // tab audio if the user opts in
+    if (controller) opts.controller = controller;
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: true,   // tab audio if the user opts in; ignored otherwise
-      });
+      stream = await navigator.mediaDevices.getDisplayMedia(opts);
     } catch (err) {
       setStatus(err && err.name === "NotAllowedError" ? "Sharing cancelled." : "Couldn't start sharing: " + err, "error");
       return;
+    }
+    // Must be set right after the promise resolves (before yielding to the event loop), per spec.
+    if (controller && controller.setFocusBehavior) {
+      try { controller.setFocusBehavior("no-focus-change"); } catch (e) { /* unsupported / too late */ }
     }
     // If the user clicks the browser's native "Stop sharing", tear down gracefully.
     stream.getVideoTracks()[0].addEventListener("ended", function () {
