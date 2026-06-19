@@ -178,3 +178,88 @@ body.kg-dev.kg-imp { padding-top: 4.85rem; }
 .kg-out { margin-top: 0.6rem; padding: 0.6rem 0.8rem; background: var(--kg-canvas); border: 1px solid var(--kg-line); border-radius: 8px; font-size: 0.9rem; }
 .kg-back { display: inline-block; margin-top: 1.5rem; }
 [x-cloak] { display: none !important; }
+
+/* Clippy — the floating, dismissible clip.cool mascot (markup: _clippy.html) */
+.clippy {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.6rem;
+  pointer-events: none; /* let clicks fall through the gap; children re-enable */
+}
+.clippy-bubble,
+.clippy-toggle { pointer-events: auto; }
+
+.clippy-bubble {
+  position: relative;
+  max-width: 16rem;
+  background: var(--kg-surface);
+  color: var(--kg-ink);
+  border: 1px solid var(--kg-line);
+  border-top: 4px solid var(--kg-cyan);
+  border-radius: var(--kg-radius);
+  padding: 0.85rem 1rem 0.7rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+/* little tail pointing down-right toward the paperclip */
+.clippy-bubble::after {
+  content: "";
+  position: absolute;
+  right: 1.75rem;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  background: var(--kg-surface);
+  border-right: 1px solid var(--kg-line);
+  border-bottom: 1px solid var(--kg-line);
+  transform: rotate(45deg);
+}
+.clippy-text { margin: 0 0 0.5rem; font-size: 0.9rem; line-height: 1.45; }
+
+.clippy-close {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--kg-grey);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+}
+.clippy-close:hover { color: var(--kg-ink); }
+
+.clippy-hide {
+  background: none;
+  border: none;
+  color: var(--kg-grey);
+  font-family: var(--kg-sans);
+  font-size: 0.75rem;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.clippy-hide:hover { color: var(--kg-ink); }
+
+.clippy-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  line-height: 0;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+  transition: transform 0.15s ease;
+}
+.clippy-toggle:hover { transform: translateY(-3px) rotate(-4deg); }
+.clippy-toggle img { width: 72px; height: 72px; }
+
+@media (max-width: 640px) {
+  .clippy { right: 0.75rem; bottom: 0.75rem; }
+  .clippy-toggle img { width: 56px; height: 56px; }
+  .clippy-bubble { max-width: 13rem; }
+}

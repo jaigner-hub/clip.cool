@@ -1,0 +1,13 @@
+{% load static %}
+{# Clippy — the clip.cool mascot/assistant. Floating, dismissible, context-aware. #}
+{# CSP-safe: component registered in web/clippy.js (Alpine CSP build), no inline JS/CSS. #}
+<div class="clippy" x-data="clippy" data-page="{{ active_page|default:'' }}" x-show="shown" x-cloak>
+  <div class="clippy-bubble" x-show="open" x-cloak>
+    <button type="button" class="clippy-close" @click="close" aria-label="Close">×</button>
+    <p class="clippy-text" x-text="tip"></p>
+    <button type="button" class="clippy-hide" @click="hide">Hide Clippy</button>
+  </div>
+  <button type="button" class="clippy-toggle" @click="toggle" aria-label="Clippy assistant">
+    <img src="{% static 'clips/clippy.webp' %}" alt="Clippy" width="72" height="72" draggable="false">
+  </button>
+</div>
