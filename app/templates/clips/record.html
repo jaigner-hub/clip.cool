@@ -30,6 +30,20 @@
   {# Playback of the captured clip (blob: URL — allowed by media-src blob:). #}
   <video id="record-playback" class="clip-record-video" controls playsinline hidden></video>
 
+  {# Trim scrubber: drag the in/out handles to set the kept range (applied at transcode). #}
+  <div id="record-trim" class="clip-trim" hidden>
+    <div class="clip-trim-bar" id="trim-bar">
+      <div class="clip-trim-sel" id="trim-sel"></div>
+      <div class="clip-trim-playhead" id="trim-playhead"></div>
+      <div class="clip-trim-handle" id="trim-in" title="Start"></div>
+      <div class="clip-trim-handle" id="trim-out" title="End"></div>
+    </div>
+    <div class="clip-trim-row">
+      <span class="kg-muted" id="trim-label">in 0.0s · out 0.0s · 0.0s clip</span>
+      <button type="button" class="kg-btn kg-btn-sm" id="trim-reset">Reset trim</button>
+    </div>
+  </div>
+
   <div class="kg-row" id="record-controls" hidden>
     <button type="button" id="record-start" class="kg-btn">● Record</button>
     <button type="button" id="record-stop" class="kg-btn" hidden>■ Stop</button>

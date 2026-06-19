@@ -94,30 +94,43 @@ def _vf(*filters):
     return ",".join(f for f in filters if f)
 
 
-def make_gif(src_path, out_path, crop_filter=None):
+def _seek(trim):
+    """A (start, dur) trim → (args before -i, args after -i). `-ss` before the input is a fast seek;
+    `-t` after it caps the duration. With re-encoding (every rendition) this is frame-accurate."""
+    if not trim:
+        return [], []
+    start, dur = trim
+    pre = ["-ss", "%.3f" % start] if start and start > 0 else []
+    post = ["-t", "%.3f" % dur] if dur and dur > 0 else []
+    return pre, post
+
+
+def make_gif(src_path, out_path, crop_filter=None, seek_pre=None, seek_post=None):
     """Optimized animated GIF (15fps, downscaled, palette-optimized) for chat autoplay — a fraction
     of a raw GIF. Reused by the transcode pass and by caption burn-in (so the shareable GIF carries
-    the caption). `crop_filter` is an optional leading ffmpeg `crop=...` (used at transcode; a
-    caption burn passes an already-cropped source so it's omitted)."""
+    the caption). `crop_filter` is an optional leading ffmpeg `crop=...`; seek_pre/seek_post carry a
+    trim (used at transcode; a caption burn passes an already-cropped+trimmed source so they're omitted)."""
     vf = _vf(crop_filter, "fps=15", "scale='min(480,iw)':-1:flags=lanczos") + \
         ",split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer"
-    _run(["ffmpeg", "-y", "-i", src_path, "-vf", vf, out_path])
+    _run(["ffmpeg", "-y", *(seek_pre or []), "-i", src_path, *(seek_post or []), "-vf", vf, out_path])
     return out_path
 
 
-def transcode(src_path, workdir, crop=None):
+def transcode(src_path, workdir, crop=None, trim=None):
     """Produce renditions + poster from src_path into workdir. Returns
     {'renditions': [{kind, path, mime}], 'poster': path|None, 'meta': <probe>}.
-    `crop` ({x,y,w,h} fractions) is baked into every output via an ffmpeg crop filter.
-    Raises RuntimeError if even H.264 fails (we cannot serve the asset without a fallback)."""
+    `crop` ({x,y,w,h} fractions) is baked into every output via an ffmpeg crop filter; `trim`
+    ((start, dur) seconds, dur None = to end) is applied as an input seek so the encode only
+    processes the kept range. Raises RuntimeError if even H.264 fails (no servable fallback)."""
     meta = probe(src_path)
     cf, cropped = _crop_filter(crop, meta)
+    pre, post = _seek(trim)
     renditions = []
     for kind, fname, mime, vargs in _RENDITIONS:
         out = os.path.join(workdir, fname)
         try:
             vf = ["-vf", cf] if cf else []
-            _run(["ffmpeg", "-y", "-i", src_path, *vf, *vargs, out])
+            _run(["ffmpeg", "-y", *pre, "-i", src_path, *post, *vf, *vargs, out])
             renditions.append({"kind": kind, "path": out, "mime": mime})
         except Exception:
             logger.warning("transcode: %s rendition failed (encoder missing/error?)", kind, exc_info=True)
@@ -125,7 +138,7 @@ def transcode(src_path, workdir, crop=None):
         raise RuntimeError("H.264 transcode failed; cannot serve the asset.")
     poster = os.path.join(workdir, "poster.webp")
     try:
-        _run(["ffmpeg", "-y", "-i", src_path,
+        _run(["ffmpeg", "-y", *pre, "-i", src_path, *post,
               "-vf", _vf(cf, "thumbnail", "scale='min(640,iw)':-1"), "-frames:v", "1",
               "-c:v", "libwebp", "-quality", "80", poster])
     except Exception:
@@ -135,12 +148,18 @@ def transcode(src_path, workdir, crop=None):
     # still serve the mp4. Re-burned with the caption later if one is added (see burn_caption_asset).
     gif = os.path.join(workdir, "preview.gif")
     try:
-        make_gif(src_path, gif, crop_filter=cf)
+        make_gif(src_path, gif, crop_filter=cf, seek_pre=pre, seek_post=post)
     except Exception:
         logger.warning("transcode: gif generation failed", exc_info=True)
         gif = None
-    # Report the cropped dimensions so the Asset stores what's actually served (caption overlays size
-    # to these, etc.).
+    # Report the served dimensions (cropped) + duration (trimmed) so the Asset stores what's actually
+    # served (caption overlays size to these, etc.).
     if cropped:
         meta = {**meta, "width": cropped[0], "height": cropped[1]}
+    if trim:
+        start, dur = trim
+        if dur is not None:
+            meta = {**meta, "duration": dur}
+        elif meta.get("duration") is not None and start:
+            meta = {**meta, "duration": max(0.0, meta["duration"] - start)}
     return {"renditions": renditions, "poster": poster, "gif": gif, "meta": meta}

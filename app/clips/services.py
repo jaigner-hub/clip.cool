@@ -82,13 +82,37 @@ def _clean_crop(crop):
     return {"x": x, "y": y, "w": w, "h": h}
 
 
-def finalize_asset(user, *, key, title="", content_type="", tags=None, crop=None):
+def _clean_trim(trim_start, trim_end):
+    """Normalize a scrubber trim to (start, end) seconds, or (None, None). Defensive: drop anything
+    non-numeric/degenerate (end must be at least 0.1s past start) rather than raising."""
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    start, end = num(trim_start), num(trim_end)
+    if start is not None and start < 0:
+        start = 0.0
+    if end is not None and end <= 0:
+        end = None
+    if start is not None and end is not None and end - start < 0.1:
+        return None, None   # degenerate selection — treat as no trim
+    # A bare start of 0 with no end is just "the whole clip".
+    if (start in (None, 0.0)) and end is None:
+        return None, None
+    return start, end
+
+
+def finalize_asset(user, *, key, title="", content_type="", tags=None, crop=None,
+                   trim_start=None, trim_end=None):
     """Record the uploaded object as an Asset(pending) and enqueue async processing."""
     if not key:
         raise ValueError("key is required")
     media_type = _media_type(content_type)
-    # Crop only applies to video (it's baked in by the transcode ffmpeg pass).
-    clean_crop = _clean_crop(crop) if media_type == Asset.MediaType.VIDEO else None
+    is_video = media_type == Asset.MediaType.VIDEO
+    # Crop + trim only apply to video (baked in by the transcode ffmpeg pass).
+    clean_crop = _clean_crop(crop) if is_video else None
+    t_start, t_end = _clean_trim(trim_start, trim_end) if is_video else (None, None)
     asset = Asset.objects.create(
         owner=user,
         original_key=key,
@@ -97,6 +121,8 @@ def finalize_asset(user, *, key, title="", content_type="", tags=None, crop=None
         title=(title or "").strip(),   # blank unless the user named it — never the filename
         tags=list(tags or []),
         crop=clean_crop,
+        trim_start=t_start,
+        trim_end=t_end,
         status=Asset.Status.PENDING,
     )
     # Deferred import: tasks.py pulls in procrastinate; keep it off the import path of callers.
@@ -153,7 +179,12 @@ def transcode_asset(asset_id):
                 f.write(data)
             asset.bytes = len(data)
             asset.sha256 = hashlib.sha256(data).hexdigest()
-            result = tc.transcode(src, td, crop=asset.crop)
+            trim = None
+            if asset.trim_start is not None or asset.trim_end is not None:
+                start = asset.trim_start or 0.0
+                dur = (asset.trim_end - start) if asset.trim_end is not None else None
+                trim = (start, dur)
+            result = tc.transcode(src, td, crop=asset.crop, trim=trim)
             for r in result["renditions"]:
                 rdata = open(r["path"], "rb").read()
                 rkey = "renditions/%s/%s" % (asset.id, os.path.basename(r["path"]))

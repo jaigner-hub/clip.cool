@@ -39,6 +39,7 @@ def create_asset(request, payload: FinalizeIn):
         asset = services.finalize_asset(
             user, key=payload.key, title=payload.title,
             content_type=payload.content_type, tags=payload.tags, crop=payload.crop,
+            trim_start=payload.trim_start, trim_end=payload.trim_end,
         )
     except ValueError as e:
         raise HttpError(422, str(e))

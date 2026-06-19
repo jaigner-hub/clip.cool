@@ -223,6 +223,8 @@ def finalize(request):
             content_type=data.get("content_type", ""),
             tags=data.get("tags") or [],
             crop=data.get("crop"),
+            trim_start=data.get("trim_start"),
+            trim_end=data.get("trim_end"),
         )
     except ValueError as e:
         return JsonResponse({"error": str(e)}, status=422)

@@ -22,6 +22,14 @@
     preview: document.getElementById("record-preview"),
     cropCanvas: document.getElementById("record-crop"),
     playback: document.getElementById("record-playback"),
+    trim: document.getElementById("record-trim"),
+    trimBar: document.getElementById("trim-bar"),
+    trimSel: document.getElementById("trim-sel"),
+    trimPlayhead: document.getElementById("trim-playhead"),
+    trimIn: document.getElementById("trim-in"),
+    trimOut: document.getElementById("trim-out"),
+    trimLabel: document.getElementById("trim-label"),
+    trimReset: document.getElementById("trim-reset"),
     controls: document.getElementById("record-controls"),
     start: document.getElementById("record-start"),
     stop: document.getElementById("record-stop"),
@@ -52,6 +60,10 @@
   let startedAt = 0;
   let cropDisp = null;      // selection in display (overlay) px: {x,y,w,h}; null = whole tab
   let dragStart = null;     // pointer-down point while dragging
+  let clipDuration = 0;     // recorded length (s) — source of truth for the trim bar
+  let trimInS = 0;          // kept-range start (s)
+  let trimOutS = 0;         // kept-range end (s)
+  let trimDrag = null;      // "in" | "out" while dragging a handle
 
   function cookie(name) {
     const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
@@ -102,7 +114,77 @@
     clip = null;
     chunks = [];
     show(els.playback, false);
+    show(els.trim, false);
     show(els.meta, false);
+  }
+
+  // --- trim scrubber (drag in/out over the recorded clip; applied at transcode) ---
+
+  function layoutTrim() {
+    if (clipDuration <= 0) return;
+    const inPct = (trimInS / clipDuration) * 100;
+    const outPct = (trimOutS / clipDuration) * 100;
+    els.trimSel.style.left = inPct + "%";
+    els.trimSel.style.width = Math.max(0, outPct - inPct) + "%";
+    els.trimIn.style.left = inPct + "%";
+    els.trimOut.style.left = outPct + "%";
+    els.trimLabel.textContent =
+      "in " + trimInS.toFixed(1) + "s · out " + trimOutS.toFixed(1) + "s · "
+      + (trimOutS - trimInS).toFixed(1) + "s clip";
+  }
+
+  function setPlayhead(t) {
+    if (clipDuration > 0) els.trimPlayhead.style.left = ((t / clipDuration) * 100) + "%";
+  }
+
+  function initTrim() {
+    trimInS = 0;
+    trimOutS = clipDuration;
+    layoutTrim();
+    setPlayhead(0);
+    show(els.trim, true);
+  }
+
+  function barSeconds(clientX) {
+    const r = els.trimBar.getBoundingClientRect();
+    if (r.width <= 0) return 0;
+    return clamp((clientX - r.left) / r.width, 0, 1) * clipDuration;
+  }
+
+  function onTrimDown(which) {
+    return function (ev) {
+      ev.preventDefault();
+      trimDrag = which;
+      if (els.trimBar.setPointerCapture && ev.pointerId != null) {
+        try { els.trimBar.setPointerCapture(ev.pointerId); } catch (e) {}
+      }
+      onTrimMove(ev);
+    };
+  }
+
+  function onTrimMove(ev) {
+    if (!trimDrag) return;
+    const t = barSeconds(ev.clientX);
+    if (trimDrag === "in") trimInS = clamp(t, 0, trimOutS - 0.1);
+    else trimOutS = clamp(t, trimInS + 0.1, clipDuration);
+    const edge = trimDrag === "in" ? trimInS : trimOutS;
+    try { els.playback.currentTime = edge; } catch (e) {}
+    setPlayhead(edge);
+    layoutTrim();
+  }
+
+  function endTrimDrag() { trimDrag = null; }
+
+  function resetTrim() { trimInS = 0; trimOutS = clipDuration; layoutTrim(); setPlayhead(0); }
+
+  // Fraction (0..1) of the recorded range to send to the server; null when the whole clip is kept.
+  function trimPayload() {
+    const body = {};
+    if (clipDuration > 0) {
+      if (trimInS > 0.05) body.trim_start = trimInS;
+      if (trimOutS < clipDuration - 0.05) body.trim_end = trimOutS;
+    }
+    return body;
   }
 
   function fmt(s) {
@@ -293,8 +375,14 @@
     clip = new Blob(chunks, { type: UPLOAD_TYPE });
     chunks = [];
     if (!clip.size) { setStatus("Nothing was recorded — try again.", "error"); return; }
+    // The wall-clock record length is reliable; MediaRecorder webm duration metadata often isn't.
+    const recordedSeconds = startedAt ? (Date.now() - startedAt) / 1000 : 0;
     clipURL = URL.createObjectURL(clip);
     els.playback.src = clipURL;
+    fixDurationThen(function (d) {
+      clipDuration = (isFinite(d) && d > 0) ? d : recordedSeconds;
+      initTrim();
+    });
     show(els.stage, false);
     show(els.playback, true);
     show(els.stop, false);
@@ -303,7 +391,25 @@
     show(els.reset, false);
     show(els.meta, true);
     els.timer.textContent = "Captured " + Math.round(clip.size / 1024) + " KB"
-      + (cropFractions() ? " — your crop is applied after upload." : ". Review it, then upload.");
+      + (cropFractions() ? " — your crop is applied after upload." : ". Trim it below, then upload.");
+  }
+
+  // MediaRecorder webm blobs often report duration=Infinity until you seek to the end. Force the
+  // browser to compute it, then call back with the (now finite) duration.
+  function fixDurationThen(cb) {
+    const v = els.playback;
+    function ready() {
+      v.removeEventListener("loadedmetadata", ready);
+      if (isFinite(v.duration) && v.duration > 0) { cb(v.duration); return; }
+      const onSeek = function () {
+        v.removeEventListener("timeupdate", onSeek);
+        v.currentTime = 0;
+        cb(v.duration);
+      };
+      v.addEventListener("timeupdate", onSeek);
+      try { v.currentTime = 1e101; } catch (e) { cb(v.duration); }
+    }
+    v.addEventListener("loadedmetadata", ready);
   }
 
   function uploadFailed(msg) {
@@ -333,6 +439,7 @@
       const body = { key: key, title: els.title.value || "", content_type: UPLOAD_TYPE, tags: tags };
       const cf = cropFractions();
       if (cf) body.crop = cf;
+      Object.assign(body, trimPayload());   // trim_start / trim_end (seconds), omitted if whole clip
       res = await postJSON(finalizeURL, body);
       if (!res.ok) { uploadFailed("Finalize failed (" + res.status + "): " + (await res.text())); return; }
       const asset = await res.json();
@@ -354,6 +461,29 @@
   els.cropCanvas.addEventListener("pointermove", onPointerMove);
   els.cropCanvas.addEventListener("pointerup", onPointerUp);
   els.upload.addEventListener("click", upload);
-  window.addEventListener("resize", function () { if (stream) clearCrop(); });
+
+  // Trim: drag the handles; click the bar to seek; loop playback within the kept range.
+  els.trimIn.addEventListener("pointerdown", onTrimDown("in"));
+  els.trimOut.addEventListener("pointerdown", onTrimDown("out"));
+  els.trimBar.addEventListener("pointerdown", function (ev) {
+    if (ev.target === els.trimIn || ev.target === els.trimOut) return;  // a handle grab
+    const t = barSeconds(ev.clientX);
+    try { els.playback.currentTime = t; } catch (e) {}
+    setPlayhead(t);
+  });
+  els.trimBar.addEventListener("pointermove", onTrimMove);
+  els.trimBar.addEventListener("pointerup", endTrimDrag);
+  els.trimBar.addEventListener("pointercancel", endTrimDrag);
+  window.addEventListener("pointerup", endTrimDrag);
+  els.trimReset.addEventListener("click", resetTrim);
+  els.playback.addEventListener("timeupdate", function () {
+    const t = els.playback.currentTime;
+    if (clipDuration > 0 && (t >= trimOutS || t < trimInS - 0.05)) {
+      try { els.playback.currentTime = trimInS; } catch (e) {}
+    }
+    setPlayhead(els.playback.currentTime);
+  });
+
+  window.addEventListener("resize", function () { if (stream) clearCrop(); layoutTrim(); });
   window.addEventListener("beforeunload", stopTracks);
 })();

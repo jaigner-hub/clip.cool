@@ -46,6 +46,11 @@ class Asset(models.Model):
     # while the clip.cool tab is backgrounded — a live canvas crop freezes under requestAnimationFrame
     # throttling), and we crop here. null ⇒ no crop.
     crop = models.JSONField(null=True, blank=True)
+    # Optional trim from the tab-recorder scrubber: keep [trim_start, trim_end] seconds of the
+    # recording, applied by ffmpeg at transcode (before any rendition is encoded, so the encode only
+    # ever processes the kept range). null = no trim on that edge (start of clip / end of clip).
+    trim_start = models.FloatField(null=True, blank=True)
+    trim_end = models.FloatField(null=True, blank=True)
     # sha256 of the original bytes — exact-duplicate detection (perceptual pHash dedup is a later
     # follow-up, docs/architecture.md). Indexed so a future collapse can look up by hash.
     sha256 = models.CharField(max_length=64, blank=True, db_index=True)
