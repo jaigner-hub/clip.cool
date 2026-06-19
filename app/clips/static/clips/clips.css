@@ -275,3 +275,22 @@
   background: #0b1220;
   border-radius: 10px;
 }
+
+/* Tab recorder crop overlay: drag a selection over the live preview to crop the recording. */
+.clip-record-stage {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  max-width: 640px;
+  margin: 12px 0;
+  line-height: 0;
+}
+.clip-record-stage .clip-record-video { margin: 0; max-width: 100%; }
+.clip-crop-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+}

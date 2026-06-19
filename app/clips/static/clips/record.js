@@ -1,8 +1,14 @@
 // clip.cool in-browser tab recorder (CSP-clean: external same-origin script, no inline JS).
 //   1) getDisplayMedia  -> user shares a browser tab; we show a live preview
-//   2) MediaRecorder    -> Record/Stop bounds the clip (the recording window IS the trim)
-//   3) presign -> PUT to R2 -> finalize  (same path as a file upload; emits video/webm)
-// The captured blob is video/webm, which finalize routes straight to the transcode queue.
+//   2) optional crop    -> drag a box over the preview; we record only that region
+//   3) MediaRecorder    -> Record/Stop bounds the clip (the recording window IS the trim)
+//   4) presign -> PUT to R2 -> finalize  (same path as a file upload; emits video/webm)
+//
+// Cropping: a tab capture is the WHOLE rendered tab. The "crop a captured tab to one element" API
+// (Region Capture / cropTo) is self-capture only, so it can't target another tab's video. Instead,
+// when a crop is set we draw the selected source rect onto a canvas each frame and record
+// canvas.captureStream() (audio re-attached from the display stream). No crop = record the raw
+// stream (best quality, the original path).
 (function () {
   "use strict";
 
@@ -12,11 +18,14 @@
   const els = {
     share: document.getElementById("record-share"),
     hint: document.getElementById("record-hint"),
+    stage: document.getElementById("record-stage"),
     preview: document.getElementById("record-preview"),
+    cropCanvas: document.getElementById("record-crop"),
     playback: document.getElementById("record-playback"),
     controls: document.getElementById("record-controls"),
     start: document.getElementById("record-start"),
     stop: document.getElementById("record-stop"),
+    cropReset: document.getElementById("record-crop-reset"),
     reset: document.getElementById("record-reset"),
     timer: document.getElementById("record-timer"),
     meta: document.getElementById("record-meta"),
@@ -32,6 +41,7 @@
   // R2 was signed for a bare "video/webm" Content-Type, so the PUT + finalize must use exactly
   // that (MediaRecorder's blob.type carries a ;codecs=… suffix the presign didn't sign for).
   const UPLOAD_TYPE = "video/webm";
+  const MIN_CROP_PX = 16;   // a drag smaller than this (in display px) is treated as a stray click
 
   let stream = null;        // the shared-tab MediaStream
   let recorder = null;      // MediaRecorder
@@ -40,6 +50,9 @@
   let clipURL = null;       // object URL for playback (revoked on reset)
   let timerId = null;
   let startedAt = 0;
+  let cropDisp = null;      // selection in display (overlay) px: {x,y,w,h}; null = whole tab
+  let dragStart = null;     // pointer-down point while dragging
+  let rafId = 0;            // crop draw loop
 
   function cookie(name) {
     const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
@@ -61,6 +74,7 @@
   }
 
   function show(el, on) { el.hidden = !on; }
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
   // Feature gate: getDisplayMedia is Chromium/Firefox desktop; absent on iOS Safari.
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia || typeof MediaRecorder === "undefined") {
@@ -104,6 +118,97 @@
     if (elapsed >= maxSeconds) stopRecording();
   }
 
+  // --- crop selection (overlay drawn in display px; converted to source px at record time) ---
+
+  function syncOverlaySize() {
+    // 1 overlay px == 1 displayed CSS px, so pointer offsets map straight onto the canvas.
+    const w = els.preview.clientWidth, h = els.preview.clientHeight;
+    if (w && h && (els.cropCanvas.width !== w || els.cropCanvas.height !== h)) {
+      els.cropCanvas.width = w;
+      els.cropCanvas.height = h;
+    }
+  }
+
+  function drawBand() {
+    syncOverlaySize();
+    const c = els.cropCanvas, ctx = c.getContext("2d");
+    ctx.clearRect(0, 0, c.width, c.height);
+    if (!cropDisp) return;
+    ctx.fillStyle = "rgba(11,18,32,0.55)";          // dim everything…
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.clearRect(cropDisp.x, cropDisp.y, cropDisp.w, cropDisp.h);  // …except the selection
+    ctx.strokeStyle = "#61D9EF";                    // --kg-cyan
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cropDisp.x, cropDisp.y, cropDisp.w, cropDisp.h);
+  }
+
+  function clearCrop() {
+    cropDisp = null;
+    drawBand();
+    show(els.cropReset, false);
+    els.hint.textContent = "Recording the whole tab. Drag a box over the area you want to crop it.";
+  }
+
+  function onPointerDown(e) {
+    if (recorder && recorder.state !== "inactive") return;  // no re-cropping mid-record
+    syncOverlaySize();
+    els.cropCanvas.setPointerCapture(e.pointerId);
+    const r = els.cropCanvas.getBoundingClientRect();
+    dragStart = { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  function onPointerMove(e) {
+    if (!dragStart) return;
+    const r = els.cropCanvas.getBoundingClientRect();
+    const x = clamp(e.clientX - r.left, 0, els.cropCanvas.width);
+    const y = clamp(e.clientY - r.top, 0, els.cropCanvas.height);
+    cropDisp = {
+      x: Math.min(dragStart.x, x),
+      y: Math.min(dragStart.y, y),
+      w: Math.abs(x - dragStart.x),
+      h: Math.abs(y - dragStart.y),
+    };
+    drawBand();
+  }
+
+  function onPointerUp() {
+    if (!dragStart) return;
+    dragStart = null;
+    if (!cropDisp || cropDisp.w < MIN_CROP_PX || cropDisp.h < MIN_CROP_PX) {
+      clearCrop();  // treat a tiny drag as "no crop"
+      return;
+    }
+    drawBand();
+    show(els.cropReset, true);
+    els.hint.textContent = "Cropping to your selection. Drag again to redo, or Clear crop for the whole tab.";
+  }
+
+  // Map the display-px selection to source pixels and start a canvas that draws only that rect.
+  // Returns a MediaStream to record (canvas video + the display stream's audio).
+  function buildCropStream() {
+    const vw = els.preview.videoWidth, vh = els.preview.videoHeight;
+    const sx = vw / els.cropCanvas.width, sy = vh / els.cropCanvas.height;
+    let cx = Math.round(cropDisp.x * sx);
+    let cy = Math.round(cropDisp.y * sy);
+    let cw = Math.round(cropDisp.w * sx);
+    let ch = Math.round(cropDisp.h * sy);
+    cx = clamp(cx, 0, vw - 2); cy = clamp(cy, 0, vh - 2);
+    cw = clamp(cw, 2, vw - cx); ch = clamp(ch, 2, vh - cy);
+    cw -= cw % 2; ch -= ch % 2;   // even dims keep the encoder (yuv420p) happy
+
+    const canvas = document.createElement("canvas");
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext("2d");
+    (function draw() {
+      ctx.drawImage(els.preview, cx, cy, cw, ch, 0, 0, cw, ch);
+      rafId = requestAnimationFrame(draw);
+    })();
+
+    const out = canvas.captureStream(30);
+    stream.getAudioTracks().forEach(function (t) { out.addTrack(t); });
+    return out;
+  }
+
   async function share() {
     resetClip();
     setStatus("");
@@ -113,7 +218,6 @@
         audio: true,   // tab audio if the user opts in; ignored otherwise
       });
     } catch (err) {
-      // User cancelled the picker, or permission denied — not an error worth shouting about.
       setStatus(err && err.name === "NotAllowedError" ? "Sharing cancelled." : "Couldn't start sharing: " + err, "error");
       return;
     }
@@ -123,19 +227,21 @@
       teardownPreview();
     });
     els.preview.srcObject = stream;
-    show(els.preview, true);
+    clearCrop();
+    show(els.stage, true);
     show(els.controls, true);
     show(els.start, true);
     show(els.stop, false);
     show(els.reset, false);
+    els.preview.addEventListener("loadedmetadata", drawBand, { once: true });
     els.share.textContent = "Share a different tab";
-    els.hint.textContent = "Click Record when your moment starts. Recording auto-stops at " + fmt(maxSeconds) + ".";
   }
 
   function teardownPreview() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
     stopTracks();
     els.preview.srcObject = null;
-    show(els.preview, false);
+    show(els.stage, false);
     show(els.controls, false);
     els.timer.textContent = "";
     els.share.textContent = "Share a browser tab";
@@ -144,10 +250,12 @@
   function startRecording() {
     if (!stream) return;
     resetClip();
+    const recStream = cropDisp ? buildCropStream() : stream;
     const mimeType = pickMimeType();
     try {
-      recorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+      recorder = mimeType ? new MediaRecorder(recStream, { mimeType: mimeType }) : new MediaRecorder(recStream);
     } catch (err) {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
       setStatus("Couldn't start recording: " + err, "error");
       return;
     }
@@ -162,13 +270,16 @@
     show(els.start, false);
     show(els.stop, true);
     show(els.reset, false);
+    show(els.cropReset, false);
     show(els.playback, false);
+    els.cropCanvas.style.cursor = "default";
     timerId = setInterval(tick, 250);
     tick();
   }
 
   function stopRecording() {
     if (timerId) { clearInterval(timerId); timerId = null; }
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
     if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 
@@ -178,7 +289,7 @@
     if (!clip.size) { setStatus("Nothing was recorded — try again.", "error"); return; }
     clipURL = URL.createObjectURL(clip);
     els.playback.src = clipURL;
-    show(els.preview, false);
+    show(els.stage, false);
     show(els.playback, true);
     show(els.stop, false);
     show(els.start, true);
@@ -193,7 +304,7 @@
     els.upload.disabled = true;
     try {
       setStatus("Requesting upload URL…");
-      const filename = "tab-recording-" + fmt(Math.floor((clip.size % 86400))).replace(":", "") + ".webm";
+      const filename = "tab-recording-" + clip.size + ".webm";
       let res = await postJSON(presignURL, { filename: filename, content_type: UPLOAD_TYPE });
       if (!res.ok) { setStatus("Presign failed: " + (await res.text()), "error"); els.upload.disabled = false; return; }
       const { key, url } = await res.json();
@@ -220,7 +331,11 @@
   els.share.addEventListener("click", share);
   els.start.addEventListener("click", startRecording);
   els.stop.addEventListener("click", stopRecording);
-  els.reset.addEventListener("click", function () { resetClip(); show(els.preview, !!stream); });
-  els.upload.addEventListener("click", upload);
+  els.cropReset.addEventListener("click", clearCrop);
+  els.reset.addEventListener("click", function () { resetClip(); show(els.stage, !!stream); });
+  els.cropCanvas.addEventListener("pointerdown", onPointerDown);
+  els.cropCanvas.addEventListener("pointermove", onPointerMove);
+  els.cropCanvas.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("resize", function () { if (stream) clearCrop(); });
   window.addEventListener("beforeunload", stopTracks);
 })();
