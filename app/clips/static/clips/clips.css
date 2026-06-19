@@ -299,3 +299,20 @@
    Restore [hidden] for these so the empty preview + playback boxes stay gone until used. */
 .clip-record-stage[hidden],
 .clip-record-video[hidden] { display: none; }
+
+/* Detail page: media still transcoding (video has no renditions yet) — show this instead of
+   pointing an <img> at the .webm original (which renders as a broken image). */
+.clip-processing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 6px;
+  min-height: 240px;
+  padding: 32px 20px;
+  background: #0b1220;
+  color: #e2e8f0;
+  border-radius: 10px;
+}
+.clip-processing .kg-muted { color: #94a3b8; }

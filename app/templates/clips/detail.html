@@ -2,7 +2,7 @@
 {% load static %}
 {% block head %}
 <link rel="stylesheet" href="{% static 'clips/clips.css' %}">
-{% if asset.status == 'pending' %}<meta http-equiv="refresh" content="3">{% endif %}
+{% if asset.status == 'pending' or asset.status == 'transcoding' %}<meta http-equiv="refresh" content="3">{% endif %}
 {# Open Graph / Twitter — so the canonical link unfurls (and autoplays) in chat/social. #}
 {% if a.is_public %}
 <meta property="og:site_name" content="clip.cool">
@@ -39,6 +39,16 @@
         {% for s in sources %}<source src="{{ s.url }}" type="{{ s.mime }}">{% endfor %}
         <img src="{{ a.poster_url }}" alt="{{ a.title|default:'clip' }}">
       </video>
+      {% elif a.media_type == 'video' %}
+      {# No renditions yet (or failed) — don't point an <img> at the .webm original (broken image). #}
+      <div class="clip-processing">
+        {% if asset.status == 'failed' %}
+        <p>Transcoding failed.</p><p class="kg-muted">Try recording or uploading again.</p>
+        {% else %}
+        <p>Transcoding your clip…</p>
+        <p class="kg-muted">Converting to web video (AV1 / VP9 / H.264). This page refreshes automatically.</p>
+        {% endif %}
+      </div>
       {% else %}
       <img src="{{ a.url }}" alt="{{ a.title|default:'clip' }}">
       {% endif %}
@@ -47,7 +57,7 @@
   </div>
 
   <div class="clip-detail-info">
-    {% if asset.status == 'pending' %}
+    {% if asset.status == 'pending' or asset.status == 'transcoding' %}
       <p class="clip-status">processing… <span class="kg-muted">(poster, OCR, and AI labels are generating — this page refreshes)</span></p>
     {% elif asset.status == 'failed' %}
       <p class="clip-status">processing failed</p>
