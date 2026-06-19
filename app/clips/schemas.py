@@ -21,6 +21,7 @@ class FinalizeIn(Schema):
     title: str = ""
     content_type: str = ""
     tags: list[str] = []
+    crop: dict | None = None   # tab-recorder source crop {x,y,w,h} fractions; baked in at transcode
 
 
 class AssetOut(Schema):

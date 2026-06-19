@@ -52,7 +52,6 @@
   let startedAt = 0;
   let cropDisp = null;      // selection in display (overlay) px: {x,y,w,h}; null = whole tab
   let dragStart = null;     // pointer-down point while dragging
-  let rafId = 0;            // crop draw loop
 
   function cookie(name) {
     const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
@@ -198,33 +197,15 @@
     }
     drawBand();
     show(els.cropReset, true);
-    els.hint.textContent = "Cropping to your selection. Drag again to redo, or Clear crop for the whole tab.";
+    els.hint.textContent = "Cropping to your selection (applied when you upload). Drag again to redo, or Clear crop.";
   }
 
-  // Map the display-px selection to source pixels and start a canvas that draws only that rect.
-  // Returns a MediaStream to record (canvas video + the display stream's audio).
-  function buildCropStream() {
-    const vw = els.preview.videoWidth, vh = els.preview.videoHeight;
-    const sx = vw / els.cropCanvas.width, sy = vh / els.cropCanvas.height;
-    let cx = Math.round(cropDisp.x * sx);
-    let cy = Math.round(cropDisp.y * sy);
-    let cw = Math.round(cropDisp.w * sx);
-    let ch = Math.round(cropDisp.h * sy);
-    cx = clamp(cx, 0, vw - 2); cy = clamp(cy, 0, vh - 2);
-    cw = clamp(cw, 2, vw - cx); ch = clamp(ch, 2, vh - cy);
-    cw -= cw % 2; ch -= ch % 2;   // even dims keep the encoder (yuv420p) happy
-
-    const canvas = document.createElement("canvas");
-    canvas.width = cw; canvas.height = ch;
-    const ctx = canvas.getContext("2d");
-    (function draw() {
-      ctx.drawImage(els.preview, cx, cy, cw, ch, 0, 0, cw, ch);
-      rafId = requestAnimationFrame(draw);
-    })();
-
-    const out = canvas.captureStream(30);
-    stream.getAudioTracks().forEach(function (t) { out.addTrack(t); });
-    return out;
+  // The selection as fractions (0..1) of the source frame — resolution-independent, so the server
+  // can map it onto the recorded full-frame webm whatever its dimensions. null = no crop.
+  function cropFractions() {
+    const c = els.cropCanvas;
+    if (!cropDisp || !c.width || !c.height) return null;
+    return { x: cropDisp.x / c.width, y: cropDisp.y / c.height, w: cropDisp.w / c.width, h: cropDisp.h / c.height };
   }
 
   async function share() {
@@ -263,7 +244,6 @@
   }
 
   function teardownPreview() {
-    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
     stopTracks();
     els.preview.srcObject = null;
     show(els.stage, false);
@@ -275,12 +255,14 @@
   function startRecording() {
     if (!stream) return;
     resetClip();
-    const recStream = cropDisp ? buildCropStream() : stream;
+    // Always record the RAW capture stream. getDisplayMedia keeps producing frames while the
+    // clip.cool tab is in the background (so you can switch to YouTube and press play), whereas a
+    // live canvas crop would freeze — requestAnimationFrame is throttled in hidden tabs. The crop
+    // selection is sent to the server and baked in by ffmpeg at transcode instead.
     const mimeType = pickMimeType();
     try {
-      recorder = mimeType ? new MediaRecorder(recStream, { mimeType: mimeType }) : new MediaRecorder(recStream);
+      recorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
     } catch (err) {
-      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
       setStatus("Couldn't start recording: " + err, "error");
       return;
     }
@@ -304,7 +286,6 @@
 
   function stopRecording() {
     if (timerId) { clearInterval(timerId); timerId = null; }
-    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
     if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 
@@ -321,7 +302,8 @@
     els.start.textContent = "● Record again";
     show(els.reset, false);
     show(els.meta, true);
-    els.timer.textContent = "Captured " + Math.round(clip.size / 1024) + " KB. Review it, then upload.";
+    els.timer.textContent = "Captured " + Math.round(clip.size / 1024) + " KB"
+      + (cropFractions() ? " — your crop is applied after upload." : ". Review it, then upload.");
   }
 
   function uploadFailed(msg) {
@@ -348,7 +330,10 @@
 
       setStatus("Finalizing…");
       const tags = (els.tags.value || "").split(",").map(function (t) { return t.trim(); }).filter(Boolean);
-      res = await postJSON(finalizeURL, { key: key, title: els.title.value || "", content_type: UPLOAD_TYPE, tags: tags });
+      const body = { key: key, title: els.title.value || "", content_type: UPLOAD_TYPE, tags: tags };
+      const cf = cropFractions();
+      if (cf) body.crop = cf;
+      res = await postJSON(finalizeURL, body);
       if (!res.ok) { uploadFailed("Finalize failed (" + res.status + "): " + (await res.text())); return; }
       const asset = await res.json();
 

@@ -69,16 +69,44 @@ def burn_caption(src_path, overlay_path, workdir, video=True):
     return out
 
 
-def transcode(src_path, workdir):
+def _crop_filter(crop, meta):
+    """Turn a {x,y,w,h}-fractions crop + probed source dims into an ffmpeg `crop=W:H:X:Y` filter
+    string (even dims, clamped in-bounds), and the resulting (w,h). Returns (None, None) if there's
+    no crop or we couldn't read the source size."""
+    if not crop:
+        return None, None
+    iw, ih = meta.get("width"), meta.get("height")
+    if not iw or not ih:
+        return None, None
+    x = int(round(crop["x"] * iw))
+    y = int(round(crop["y"] * ih))
+    w = int(round(crop["w"] * iw))
+    h = int(round(crop["h"] * ih))
+    x = max(0, min(x, iw - 2))
+    y = max(0, min(y, ih - 2))
+    w = max(2, min(w, iw - x)) & ~1   # clamp, then force even
+    h = max(2, min(h, ih - y)) & ~1
+    return "crop=%d:%d:%d:%d" % (w, h, x, y), (w, h)
+
+
+def _vf(*filters):
+    """Join non-empty ffmpeg filter strings with commas."""
+    return ",".join(f for f in filters if f)
+
+
+def transcode(src_path, workdir, crop=None):
     """Produce renditions + poster from src_path into workdir. Returns
     {'renditions': [{kind, path, mime}], 'poster': path|None, 'meta': <probe>}.
+    `crop` ({x,y,w,h} fractions) is baked into every output via an ffmpeg crop filter.
     Raises RuntimeError if even H.264 fails (we cannot serve the asset without a fallback)."""
     meta = probe(src_path)
+    cf, cropped = _crop_filter(crop, meta)
     renditions = []
     for kind, fname, mime, vargs in _RENDITIONS:
         out = os.path.join(workdir, fname)
         try:
-            _run(["ffmpeg", "-y", "-i", src_path, *vargs, out])
+            vf = ["-vf", cf] if cf else []
+            _run(["ffmpeg", "-y", "-i", src_path, *vf, *vargs, out])
             renditions.append({"kind": kind, "path": out, "mime": mime})
         except Exception:
             logger.warning("transcode: %s rendition failed (encoder missing/error?)", kind, exc_info=True)
@@ -87,7 +115,7 @@ def transcode(src_path, workdir):
     poster = os.path.join(workdir, "poster.webp")
     try:
         _run(["ffmpeg", "-y", "-i", src_path,
-              "-vf", "thumbnail,scale='min(640,iw)':-1", "-frames:v", "1",
+              "-vf", _vf(cf, "thumbnail", "scale='min(640,iw)':-1"), "-frames:v", "1",
               "-c:v", "libwebp", "-quality", "80", poster])
     except Exception:
         logger.warning("transcode: poster generation failed", exc_info=True)
@@ -97,9 +125,13 @@ def transcode(src_path, workdir):
     gif = os.path.join(workdir, "preview.gif")
     try:
         _run(["ffmpeg", "-y", "-i", src_path, "-vf",
-              "fps=15,scale='min(480,iw)':-1:flags=lanczos,split[s0][s1];"
+              _vf(cf, "fps=15", "scale='min(480,iw)':-1:flags=lanczos") + ",split[s0][s1];"
               "[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer", gif])
     except Exception:
         logger.warning("transcode: gif generation failed", exc_info=True)
         gif = None
+    # Report the cropped dimensions so the Asset stores what's actually served (caption overlays size
+    # to these, etc.).
+    if cropped:
+        meta = {**meta, "width": cropped[0], "height": cropped[1]}
     return {"renditions": renditions, "poster": poster, "gif": gif, "meta": meta}

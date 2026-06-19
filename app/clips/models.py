@@ -41,6 +41,11 @@ class Asset(models.Model):
     bytes = models.PositiveBigIntegerField(null=True, blank=True)
     duration = models.FloatField(null=True, blank=True)   # seconds (video)
     has_audio = models.BooleanField(default=False)
+    # Optional source crop from the browser tab-recorder: {x,y,w,h} as fractions (0..1) of the source
+    # frame, applied by ffmpeg at transcode. The client records the FULL tab (so capture keeps running
+    # while the clip.cool tab is backgrounded — a live canvas crop freezes under requestAnimationFrame
+    # throttling), and we crop here. null ⇒ no crop.
+    crop = models.JSONField(null=True, blank=True)
     # sha256 of the original bytes — exact-duplicate detection (perceptual pHash dedup is a later
     # follow-up, docs/architecture.md). Indexed so a future collapse can look up by hash.
     sha256 = models.CharField(max_length=64, blank=True, db_index=True)

@@ -64,11 +64,31 @@ def create_presigned_upload(user, filename, content_type):
     }
 
 
-def finalize_asset(user, *, key, title="", content_type="", tags=None):
+def _clean_crop(crop):
+    """Normalize a tab-recorder crop to {x,y,w,h} fractions in [0,1] (w,h > 0, within bounds), or
+    None. Defensive: a bad/partial crop is dropped rather than raising — worst case is no crop."""
+    if not isinstance(crop, dict):
+        return None
+    try:
+        x, y, w, h = (float(crop["x"]), float(crop["y"]), float(crop["w"]), float(crop["h"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    x = min(max(x, 0.0), 1.0)
+    y = min(max(y, 0.0), 1.0)
+    w = min(max(w, 0.0), 1.0 - x)
+    h = min(max(h, 0.0), 1.0 - y)
+    if w < 0.02 or h < 0.02:   # a sliver isn't a real selection
+        return None
+    return {"x": x, "y": y, "w": w, "h": h}
+
+
+def finalize_asset(user, *, key, title="", content_type="", tags=None, crop=None):
     """Record the uploaded object as an Asset(pending) and enqueue async processing."""
     if not key:
         raise ValueError("key is required")
     media_type = _media_type(content_type)
+    # Crop only applies to video (it's baked in by the transcode ffmpeg pass).
+    clean_crop = _clean_crop(crop) if media_type == Asset.MediaType.VIDEO else None
     asset = Asset.objects.create(
         owner=user,
         original_key=key,
@@ -76,6 +96,7 @@ def finalize_asset(user, *, key, title="", content_type="", tags=None):
         media_type=media_type,
         title=(title or "").strip(),   # blank unless the user named it — never the filename
         tags=list(tags or []),
+        crop=clean_crop,
         status=Asset.Status.PENDING,
     )
     # Deferred import: tasks.py pulls in procrastinate; keep it off the import path of callers.
@@ -132,7 +153,7 @@ def transcode_asset(asset_id):
                 f.write(data)
             asset.bytes = len(data)
             asset.sha256 = hashlib.sha256(data).hexdigest()
-            result = tc.transcode(src, td)
+            result = tc.transcode(src, td, crop=asset.crop)
             for r in result["renditions"]:
                 rdata = open(r["path"], "rb").read()
                 rkey = "renditions/%s/%s" % (asset.id, os.path.basename(r["path"]))
