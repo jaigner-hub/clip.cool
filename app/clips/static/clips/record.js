@@ -368,6 +368,7 @@
   els.cropCanvas.addEventListener("pointerdown", onPointerDown);
   els.cropCanvas.addEventListener("pointermove", onPointerMove);
   els.cropCanvas.addEventListener("pointerup", onPointerUp);
+  els.upload.addEventListener("click", upload);
   window.addEventListener("resize", function () { if (stream) clearCrop(); });
   window.addEventListener("beforeunload", stopTracks);
 })();
