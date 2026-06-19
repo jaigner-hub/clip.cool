@@ -121,13 +121,45 @@ wait on the `clip.cool` apex DNS. This unblocks the whole edge end-to-end; the a
   `id.vent.dog/.../broker/google/endpoint` redirect URI can be removed from the Google OAuth client
   whenever — harmless to leave.)
 
+## Also landed (recorder + transcode/deploy hardening)
+
+- **In-browser tab recorder** (`/clips/record/`, nav "Record") — clip any tab you can watch
+  (getDisplayMedia, no plugin), drag-crop + trim + caption, uploads via the existing
+  presign→R2→finalize path. Crop/trim are selected client-side and **baked server-side** at transcode
+  (`Asset.crop` JSON fractions, `Asset.trim_start/_end` seconds → ffmpeg `crop=` + `-ss`/`-t`). The
+  web sibling of the planned desktop Snipper. Full writeup: **`docs/browser-recorder.md`**.
+- **Codec ladder simplified to H.264 only.** Dropped VP9 (libvpx, very slow) + AV1 (slow): their only
+  win is compression, moot on R2 (zero egress) for short clips, and neither is universal so H.264 is
+  required regardless. Transcodes went from slow → near-instant; storage ~⅓. Old clips keep their
+  existing av1/vp9 renditions. Re-add AV1 only on AV1-capable HW (the NAS GPU — Intel UHD 630 — does
+  H.264/HEVC only, so it can't accelerate the codecs that were slow).
+- **Renditions downscale to ≤1280px** (`RENDITION_MAX_W`) + recorder caps capture to ≤1080p — a 2K/4K
+  tab no longer times out the encode or bloats uploads.
+- **GIF quality**: per-frame palettes (`stats_mode=single` + `paletteuse new=1`) at 640px, `gifsicle
+  -O3` lossless (lossy removed). Captions now burn into the **GIF and the download**, not just the
+  on-platform overlay.
+- **Detail page** shows a "transcoding…" placeholder and **polls a JSON status endpoint** instead of
+  meta-refreshing (no more restarting the playing clip while a caption bakes). Grid cards show a
+  placeholder for clips without a poster yet.
+- **Self-healing transcodes**: periodic `reap_stuck_assets` re-queues jobs orphaned by a dead worker,
+  via Procrastinate **worker heartbeats** (long live encodes are never falsely reaped), bounded by
+  `Asset.transcode_attempts`. ffmpeg *failures* already mark the asset FAILED, so they aren't retried.
+- **Deploys decoupled + fast (~1 min).** `clip_web` now: drain → `docker compose build` (ALL services)
+  → recreate `webapp` only (`--no-deps`) → migrate → undrain → recreate `worker`+`worker-transcode`.
+  Worker stop-grace cut 300s→30s (reaper covers interruptions). A web-only deploy never disturbs an
+  in-flight encode. ⚠️ The build-all step is required — each service has its own `build:`/image, so a
+  per-service `--build` leaves the workers on stale code (a bug we hit: workers silently ran old code).
+- Migrations `0009`–`0012`: `Asset.crop`, `caption_burning`, `trim_start/_end`, `transcode_attempts`.
+
 ## Remaining (not done yet)
 
 1. **HSTS ramp** on the clip.cool zone (currently `max_age: 300`; raise once verified, then
    `include_subdomains`, then `preload` last).
-2. **Video tail:** dedicated heavy-worker tier for AV1, on-demand caption burn-in for downloads,
-   captioned grid posters, perceptual `pHash` dedup, prune originals.
-3. **Snipper integration (2c)** — `clip-snipper` device-flow client + pushed captures.
+2. **Video tail:** captioned grid posters, perceptual `pHash` dedup, prune originals. (Codec ladder
+   simplified to H.264; on-demand caption burn-in for download + GIF is done; a GPU/AV1 tier is only
+   worth it on AV1-capable HW if bandwidth ever becomes the driver.)
+3. **Native Snipper (2c)** — `clip-snipper` device-flow client + desktop push (the in-browser
+   recorder already covers the web case; native is for higher-fidelity source capture).
 4. **Cosmetic doc refs** to `keygrip_web` remain in comments (`postgres_ha` README, a few
    playbook/inventory comments, prometheus.yml, observability alert-group names). Non-blocking.
 5. **CI / docs** — `.github/` (CI, dependabot), `.githooks/`, ADRs — a follow-up pass.

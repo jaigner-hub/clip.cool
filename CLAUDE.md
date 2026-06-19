@@ -114,17 +114,43 @@ worktree tool), `ROADMAP.md`, `docs/adr/` (consult keygrip's), `.github/` CI (`c
 `.githooks/`, `docs/style-guide.md`. Bringing CI over is a planned follow-up. Until then there is **no
 automated test/secret-scan gate** — be careful committing.
 
+## Video / transcode — current shape (changed materially; read before touching `clips/transcode.py`)
+
+- **H.264 only.** VP9 + AV1 were **dropped** — they were the transcode bottleneck (libvpx-vp9 very
+  slow; libsvtav1 slow) and their only benefit is compression, which is moot on R2 (zero egress) for
+  short ≤1280 clips, and neither is universal so H.264 is required anyway. Re-add AV1 in `_RENDITIONS`
+  only if bandwidth/storage becomes the driver — and on **AV1-capable HW** (the homelab NAS GPU is an
+  Intel **UHD 630**: H.264/HEVC encode only, *no* AV1/VP9 — so it can't accelerate our slow codecs).
+- **Renditions downscale to ≤1280px** (`RENDITION_MAX_W`) so a 2K/4K capture can't time out the encode.
+- **GIF**: per-frame palettes (`palettegen stats_mode=single` → `paletteuse new=1`), 640px, `gifsicle
+  -O3` **lossless** (no `--lossy` — it visibly degraded; `GIF_LOSSY=0`). GIF is the chat fallback
+  (Discord/Signal only autoplay real GIFs); the `<video>`/`.mp4` is the quality path.
+- **In-browser tab recorder** (`/clips/record/`) is live — crop + trim + caption a clip from any tab,
+  no plugin. Crop/trim are selected client-side but **baked server-side** at transcode (`Asset.crop`,
+  `trim_start/_end`). See [`docs/browser-recorder.md`](./docs/browser-recorder.md).
+- **Captions burn into the download AND the GIF** (`burn_caption_asset`); detail page polls a JSON
+  status endpoint (no full-page meta-refresh).
+- **Self-healing**: a periodic `reap_stuck_assets` task re-queues jobs orphaned by a dead worker,
+  detected via Procrastinate **worker heartbeats** (so a long *live* encode is never falsely reaped),
+  bounded by `Asset.transcode_attempts`.
+- **Deploys are decoupled** (see below) — recreate the webapp first (fast, LB-drained), workers
+  separately; `clip-web` deploys in ~1 min, never blocked on an encode.
+
+## Deploys (`./rolling-deploy.sh` is legacy — use the playbook)
+
+`./ac ansible-playbook playbooks/clip-web.yml` is the canonical deploy (serial:1, per box: drain →
+**`docker compose build` ALL services** → recreate `webapp` only (`--no-deps`) → migrate → undrain →
+recreate `worker`+`worker-transcode`). The build-all step is load-bearing: each service has its own
+`build:`/image, so a per-service `--build` would leave the workers on stale code. Worker stop-grace is
+30s (the reaper covers any interrupted encode). A web-only deploy never disturbs an in-flight encode.
+
 ## Remaining work (from `docs/migration-from-keygrip.md`)
 
-1. **Drop `app.vent.dog`** — the `clip.cool` apex is live (HA LB on the shared pool), dual-served
-   with `app.vent.dog`. Later: remove app.vent.dog from `clip_web` alt-hosts + the realm redirect
-   URIs + `cf_lb_hostnames`/ingress, point the `observability` uptime check + `drain.sh` Host header
-   at clip.cool, and ramp HSTS on the clip.cool zone.
-2. **Video pipeline tail** — a dedicated heavy-worker tier for AV1 (currently in the shared worker),
-   on-demand caption burn-in for downloads, captioned grid posters, perceptual `pHash` dedup,
-   pruning originals. The transcode tier + overlay captioning + GIF renditions are live.
-3. **Snipper integration (2c)** — `clip-snipper` Keycloak device-flow client + Snipper pushing
-   captures to the API (the clip.cool side is small; see docs/phase2-video-captioning.md).
-4. **App rewrite** — under way: `clips` media app shipped, CMS removed. Django package still
-   `keygrip`; full rename is a later pass.
+1. **HSTS ramp** on the clip.cool zone (`app.vent.dog`/`id.vent.dog` are already fully retired).
+2. **Video pipeline tail** — perceptual `pHash` dedup, prune originals, captioned grid posters.
+   (Codec ladder simplified to H.264; on-demand caption burn-in for download **and** GIF is done.)
+3. **Native Snipper (2c)** — `clip-snipper` device-flow client + desktop push. The **in-browser
+   recorder** already covers the web case; native Snipper is for higher-fidelity source capture.
+4. **App rewrite** — `clips` media app shipped, CMS removed. Django package still `keygrip`; full
+   rename is a later pass.
 5. **CI / docs** — `.github/`, `.githooks/`, ADRs.

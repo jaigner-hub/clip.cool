@@ -1,7 +1,22 @@
 # Phase 2 — Video pipeline, captioning, and Snipper integration
 
-> **Status: plan, not built.** Phase 1 (image/template meme builder) is live. This is the in-depth
-> plan for video. Decisions below are settled; the step lists are the execution backlog.
+> **Status: 2a + 2b shipped; 2c shipped as an in-browser recorder.** This is the original plan; a few
+> decisions changed in practice — see the deltas below. Current-state log:
+> [`migration-from-keygrip.md`](./migration-from-keygrip.md).
+>
+> **What changed since this was written:**
+> - **Codec ladder is H.264-only** — VP9 + AV1 were dropped (slow to encode; compression is moot on
+>   R2's zero-egress for short clips; H.264 is universal). The `kind ∈ {av1, vp9, h264, …}` and
+>   "serve AV1 → VP9 → H.264" notes below are historical; new clips emit only H.264 (+ poster + GIF).
+>   Renditions also **downscale to ≤1280px**.
+> - **Captions burn into the GIF too** (not just the on-platform overlay) — `burn_caption_asset`
+>   reconciles the captioned MP4 *and* the GIF on every caption save (`caption_burning` flag drives a
+>   detail-page progress poll). GIF uses per-frame palettes + `gifsicle -O3` lossless.
+> - **2c arrived as a web recorder first:** the in-browser tab recorder (`/clips/record/`) covers the
+>   "capture → push to clip.cool" use case with no install — see [`browser-recorder.md`](./browser-recorder.md).
+>   The native `clip-snipper` device-flow client is still a future add for higher-fidelity capture.
+> - **Crop + trim** are part of the recorder, selected client-side and baked server-side at transcode
+>   (`Asset.crop`, `trim_start/_end`).
 
 Phase 2 turns clip.cool into a real video meme host and create surface. It's three interlocking
 tracks, shippable in sequence:

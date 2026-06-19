@@ -8,8 +8,11 @@ pair, behind Cloudflare). clip.cool **replaces keygrip's web footprint** on that
 beside it on the shared platform (Keycloak realm, HA Postgres, the `keygrip-edge` Docker network,
 observability, cloudflared).
 
-> Status: scaffolding ported, app-tier renamed `keygrip → clip`. The media pipeline below is the
-> design target, not yet built.
+> Status: **live on the `clip.cool` apex.** Image + video ingest, transcode, OCR/vision, Typesense
+> search, in-app meme builder, overlay captioning, and an **in-browser tab recorder** all ship. The
+> pipeline below reflects what's built (notably: **H.264-only** renditions — see Transcode). Recorder
+> details: [`browser-recorder.md`](./browser-recorder.md). Current-state log:
+> [`migration-from-keygrip.md`](./migration-from-keygrip.md).
 
 ## The one rule that beats the incumbents
 
@@ -30,8 +33,8 @@ That single decision makes us faster and cheaper than half the field before we a
 | **Auth** | **Keycloak** as sole auth, OIDC. clip uses new `clip-web` / `clip-kc-admin` / `clip-api-docs` clients in the **existing `keygrip` realm** (shared with chat; realm rename deferred). |
 | **Object storage / delivery** | ⚠️ **DEVIATES from keygrip.** **Cloudflare R2** (S3-compatible, **zero egress**) as origin, **Cloudflare CDN** in front. For a business that exists to push video bytes, egress is the cost that bankrupts you — S3/Spaces egress is brutal at scale; R2 removes it. (Cloudflare Stream was considered and rejected: per-minute-stored + per-minute-delivered pricing balloons on a high-volume meme catalog. We self-manage the pipeline and use R2 as a dumb bucket.) |
 | **Database** | **Postgres** — the self-hosted **HA cluster** on the vent.dog pair (Patroni + etcd, inherited ADR 0016). Holds metadata (assets, renditions, tags, users, popularity). The `clip` DB/role replaces `keygrip`. |
-| **Async / transcode queue** | ⚠️ **Adapted.** The reference write-up assumes Celery + Redis; **our platform has no Redis broker.** We use **Procrastinate** (Postgres-backed, inherited ADR 0008). Queue split: `transcode` (ffmpeg, heavy) / `thumbs` (posters + scrub sprites) / `index` (search + dedup + OCR). |
-| **Transcoding** | **ffmpeg** in containerized workers pulling from the `transcode` queue. Likely a **dedicated worker tier** separate from the light app workers — AV1 in particular is CPU-hungry (see pipeline below). |
+| **Async / transcode queue** | ⚠️ **Adapted.** The reference write-up assumes Celery + Redis; **our platform has no Redis broker.** We use **Procrastinate** (Postgres-backed, inherited ADR 0008). Queue split: `transcode` (ffmpeg, on a dedicated `worker-transcode` container, concurrency 1) / `thumbs` (image posters/OCR) / `index` (search + vision). A periodic `reap_stuck_assets` re-queues jobs orphaned by a dead worker (Procrastinate **worker-heartbeat** detection, so long live encodes aren't reaped). |
+| **Transcoding** | **ffmpeg** in a dedicated `worker-transcode` container. **H.264 only** (libx264) — VP9/AV1 were dropped (slow to encode; compression is moot on R2's zero-egress for short clips; H.264 is universal). Renditions downscale to ≤1280px. Re-add AV1 only on AV1-capable HW. |
 | **Search & discovery** | **Meilisearch** or **Typesense** (lightweight, self-hostable, typo-tolerant). Search relevance is where Giphy/Tenor live or die — a SQL `LIKE` is not enough. Runs as its own container on the edge net; Postgres stays the source of truth, the engine is a rebuildable index. |
 | **Edge / HA** | **Cloudflare Tunnel** (origins have no public ports) + **Load Balancer** across both boxes (inherited). |
 | **Infra / config** | **Ansible** + **SOPS/age** + Docker (inherited, ADR 0006/0001/0007). Deploy via `ansible/ac`. |
@@ -39,30 +42,38 @@ That single decision makes us faster and cheaper than half the field before we a
 
 ## Media pipeline
 
-### 1. Ingest — presigned direct-to-bucket
+### 1. Ingest — presigned direct-to-bucket (+ in-browser recorder)
 The client never streams bytes through Django. Django issues a **presigned R2 PUT URL**; the browser
-uploads **straight to the bucket**, then calls back to enqueue a `transcode` job. App servers stay
-thin and the upload path scales horizontally. (Original is stored under a content-addressed key; see
-dedup.)
+uploads **straight to the bucket**, then calls `finalize` to enqueue processing. App servers stay thin
+and the upload path scales horizontally. Three front doors feed the same `presign → PUT → finalize`
+contract: the **Upload** page (file picker), the **meme builder** (canvas export), and the
+**in-browser tab recorder** ([`browser-recorder.md`](./browser-recorder.md)) — record any tab, crop +
+trim, then upload. Crop (`{x,y,w,h}` fractions) and trim (`trim_start`/`trim_end` seconds) ride on
+`finalize` and are **baked in by ffmpeg at transcode** (crop filter + `-ss`/`-t` input seek).
 
-### 2. Transcode — ffmpeg workers
-Per upload, emit a rendition set:
-- **H.264 MP4** (`yuv420p`, `+faststart`) — universal fallback, plays everywhere.
-- **VP9 WebM** and/or **AV1** — 30–50% smaller than H.264, served to browsers that advertise
-  support. AV1 is the bandwidth win but slow to encode — use **`svt-av1`**, not `libaom`, or it
-  murders worker throughput.
-- **Poster / thumbnail** — first good frame as **AVIF/WebP**.
-- **Hover-scrub sprite** (or a tiny preview clip) — the scrubbable preview is a real perceived-quality
-  differentiator vs. Imgur.
+### 2. Transcode — ffmpeg (`worker-transcode`)
+Per video upload, emit:
+- **H.264 MP4** (`libx264 -crf 23 -preset medium -pix_fmt yuv420p +faststart -an`) — the **only**
+  video rendition. Universal, fast to encode, small at our sizes. **VP9 + AV1 were dropped** (the
+  encode bottleneck; their compression edge is moot on R2's zero-egress for short clips, and H.264 is
+  required as a fallback regardless). Re-add AV1 in `_RENDITIONS` only if bandwidth/storage demands it,
+  on AV1-capable HW.
+- **Downscale to ≤1280px** (`RENDITION_MAX_W`) — a high-res capture can't time out the encode.
+- **Poster** — representative frame → WebP.
+- **GIF** — the chat-autoplay fallback (Discord/Signal only loop real GIFs). Per-frame local palettes
+  (`palettegen stats_mode=single` → `paletteuse new=1`), 640px, `gifsicle -O3` lossless. Still 8-bit,
+  so dark gradients band somewhat — the `<video>` is the quality path.
+- **Captioned MP4 + GIF** — burned in on first caption save (`burn_caption_asset`), for download /
+  off-platform share where the overlay can't ride along.
 
-Heavy encodes (AV1) justify a **dedicated, separately-scaled worker pool** so they don't starve the
-fast `thumbs`/`index` work. For early scale this runs on the IONOS boxes / homelab; the queue makes
-it trivially horizontal later.
+`worker-transcode` is a dedicated container (concurrency 1) so a heavy encode can't starve the light
+`thumbs`/`index` queues. The Postgres-backed queue makes it horizontal later (e.g. a GPU worker on the
+homelab over Tailscale — though our current GPU does H.264/HEVC only, which isn't the bottleneck).
 
 ### 3. Deliver — `<video>`, never `<img>`
-Serve `<video autoplay loop muted playsinline>` with ordered sources **AV1 → VP9 → H.264**; the
-browser picks the best it supports. For clips under ~30 s, **progressive MP4/WebM is fine** — skip
-HLS/DASH packaging; it's overkill and adds latency for short loops. R2 origin, Cloudflare CDN front.
+Serve `<video autoplay loop muted playsinline>` with an H.264 `<source>` (old clips still carry their
+AV1/VP9 sources, ordered AV1 → VP9 → H.264). Short clips → progressive MP4, skip HLS/DASH. R2 origin,
+Cloudflare CDN front. Caption overlay is a transparent PNG positioned over the `<video>` (WYSIWYG).
 
 ## Differentiators (the reasons to switch from Tenor)
 
