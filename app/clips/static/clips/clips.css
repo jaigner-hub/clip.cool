@@ -346,3 +346,15 @@
 }
 .clip-trim-row { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
 .clip-trim-row .kg-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* Grid card thumb for a clip with no poster yet (still transcoding) — placeholder instead of a
+   broken <img src=""> (.clip-thumb gives the 16/10 box; line-height resets the card's line-height:0). */
+.clip-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0b1220;
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.4;
+}
