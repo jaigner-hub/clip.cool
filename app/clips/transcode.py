@@ -94,6 +94,17 @@ def _vf(*filters):
     return ",".join(f for f in filters if f)
 
 
+def make_gif(src_path, out_path, crop_filter=None):
+    """Optimized animated GIF (15fps, downscaled, palette-optimized) for chat autoplay — a fraction
+    of a raw GIF. Reused by the transcode pass and by caption burn-in (so the shareable GIF carries
+    the caption). `crop_filter` is an optional leading ffmpeg `crop=...` (used at transcode; a
+    caption burn passes an already-cropped source so it's omitted)."""
+    vf = _vf(crop_filter, "fps=15", "scale='min(480,iw)':-1:flags=lanczos") + \
+        ",split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer"
+    _run(["ffmpeg", "-y", "-i", src_path, "-vf", vf, out_path])
+    return out_path
+
+
 def transcode(src_path, workdir, crop=None):
     """Produce renditions + poster from src_path into workdir. Returns
     {'renditions': [{kind, path, mime}], 'poster': path|None, 'meta': <probe>}.
@@ -120,13 +131,11 @@ def transcode(src_path, workdir, crop=None):
     except Exception:
         logger.warning("transcode: poster generation failed", exc_info=True)
         poster = None
-    # Optimized animated GIF for chat autoplay (Discord/Slack loop GIFs inline). Downscaled +
-    # palette-optimized so it's a fraction of a raw GIF; on-platform we still serve the mp4.
+    # Optimized animated GIF for chat autoplay (Discord/Slack loop GIFs inline); on-platform we
+    # still serve the mp4. Re-burned with the caption later if one is added (see burn_caption_asset).
     gif = os.path.join(workdir, "preview.gif")
     try:
-        _run(["ffmpeg", "-y", "-i", src_path, "-vf",
-              _vf(cf, "fps=15", "scale='min(480,iw)':-1:flags=lanczos") + ",split[s0][s1];"
-              "[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer", gif])
+        make_gif(src_path, gif, crop_filter=cf)
     except Exception:
         logger.warning("transcode: gif generation failed", exc_info=True)
         gif = None

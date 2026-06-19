@@ -212,36 +212,68 @@ def download_url(asset):
     return storage.presign_get(key, filename="%s%s" % (safe, ext))
 
 
+def _store_gif(asset, gif_path):
+    """Upload a GIF file as the asset's GIF rendition (overwriting the previous one)."""
+    data = open(gif_path, "rb").read()
+    key = "renditions/%s/preview.gif" % asset.id
+    storage.upload_bytes(key, data, "image/gif")
+    Rendition.objects.update_or_create(
+        asset=asset, kind=Rendition.Kind.GIF,
+        defaults={"r2_key": key, "mime": "image/gif", "bytes": len(data)},
+    )
+
+
 def burn_caption_asset(asset_id):
-    """Bake the overlay caption into the pixels for a downloadable file (text doesn't ride the player
-    there). Source = the H.264 rendition for video, the original for an image; output stored as the
-    CAPTIONED rendition. No-op if the clip has no caption layer."""
+    """Reconcile the caption-baked renditions with the asset's current caption, then clear the
+    caption_burning progress flag. With a caption: bake it into the pixels for the downloadable file
+    (CAPTIONED) and re-burn the shareable GIF so it carries the text too (text doesn't ride the
+    player off-platform). Without one: drop the stale CAPTIONED and restore the plain GIF. Source =
+    the H.264 rendition for video, the original for an image."""
     asset = Asset.objects.filter(pk=asset_id).first()
-    if asset is None or not asset.text_layer_key:
+    if asset is None:
         return
     from . import transcode as tc
 
     is_video = asset.media_type == Asset.MediaType.VIDEO
-    src_key = asset.original_key
-    if is_video:
-        h264 = asset.renditions.filter(kind=Rendition.Kind.H264).first()
-        src_key = h264.r2_key if h264 else asset.original_key
-    with tempfile.TemporaryDirectory() as td:
-        src = os.path.join(td, "src")
-        with open(src, "wb") as f:
-            f.write(storage.download_bytes(src_key))
-        ov = os.path.join(td, "overlay.png")
-        with open(ov, "wb") as f:
-            f.write(storage.download_bytes(asset.text_layer_key))
-        out = tc.burn_caption(src, ov, td, video=is_video)
-        data = open(out, "rb").read()
-    ext, mime = ("mp4", "video/mp4") if is_video else ("png", "image/png")
-    key = "renditions/%s/captioned.%s" % (asset.id, ext)
-    storage.upload_bytes(key, data, mime)
-    Rendition.objects.update_or_create(
-        asset=asset, kind=Rendition.Kind.CAPTIONED,
-        defaults={"r2_key": key, "mime": mime, "bytes": len(data)},
-    )
+    try:
+        h264 = asset.renditions.filter(kind=Rendition.Kind.H264).first() if is_video else None
+        src_key = (h264.r2_key if h264 else asset.original_key)
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "src")
+            with open(src, "wb") as f:
+                f.write(storage.download_bytes(src_key))
+
+            if asset.text_layer_key:
+                ov = os.path.join(td, "overlay.png")
+                with open(ov, "wb") as f:
+                    f.write(storage.download_bytes(asset.text_layer_key))
+                out = tc.burn_caption(src, ov, td, video=is_video)
+                ext, mime = ("mp4", "video/mp4") if is_video else ("png", "image/png")
+                key = "renditions/%s/captioned.%s" % (asset.id, ext)
+                storage.upload_bytes(key, open(out, "rb").read(), mime)
+                cap_bytes = os.path.getsize(out)
+                Rendition.objects.update_or_create(
+                    asset=asset, kind=Rendition.Kind.CAPTIONED,
+                    defaults={"r2_key": key, "mime": mime, "bytes": cap_bytes},
+                )
+                # Re-burn the GIF from the captioned video so the GIF link carries the caption.
+                if is_video:
+                    _store_gif(asset, tc.make_gif(out, os.path.join(td, "preview.gif")))
+            else:
+                # Caption cleared: remove the baked-in file and restore the plain (uncaptioned) GIF.
+                cap = asset.renditions.filter(kind=Rendition.Kind.CAPTIONED).first()
+                if cap:
+                    try:
+                        storage.delete(cap.r2_key)
+                    except Exception:
+                        logger.warning("burn_caption_asset: stale captioned delete failed", exc_info=True)
+                    cap.delete()
+                if is_video:
+                    _store_gif(asset, tc.make_gif(src, os.path.join(td, "preview.gif")))
+    except Exception:
+        logger.error("clips.burn_caption_asset failed for %s", asset_id, exc_info=True)
+    finally:
+        Asset.objects.filter(pk=asset_id).update(caption_burning=False)
 
 
 def video_sources(asset):
@@ -535,19 +567,14 @@ def save_caption(user, asset_id, *, text_key, layers):
             fields.append("title")
     asset.save(update_fields=fields)
     search.upsert(asset)
-    # (Re)bake the caption into a downloadable file off the heavy queue; or drop a stale one if the
-    # caption was cleared.
-    if asset.text_layer_key:
-        from .tasks import burn_caption_asset
-        burn_caption_asset.defer(asset_id=str(asset.id))
-    else:
-        cap = asset.renditions.filter(kind=Rendition.Kind.CAPTIONED).first()
-        if cap:
-            try:
-                storage.delete(cap.r2_key)
-            except Exception:
-                logger.warning("save_caption: stale captioned delete failed", exc_info=True)
-            cap.delete()
+    # Reconcile the baked renditions (download + GIF) with the new caption off the heavy queue. The
+    # flag drives the detail-page "baking…" progress; burn_caption_asset clears it when done. This
+    # runs whether a caption was added, edited, or cleared (the worker handles each case).
+    if asset.media_type == Asset.MediaType.VIDEO:
+        Asset.objects.filter(pk=asset.id).update(caption_burning=True)
+        asset.caption_burning = True
+    from .tasks import burn_caption_asset
+    burn_caption_asset.defer(asset_id=str(asset.id))
     return asset
 
 

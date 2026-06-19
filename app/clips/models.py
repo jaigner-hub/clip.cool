@@ -61,6 +61,9 @@ class Asset(models.Model):
     # download. Empty list / blank ⇒ no caption overlay.
     caption_layers = models.JSONField(default=list, blank=True)
     text_layer_key = models.CharField(max_length=512, blank=True)
+    # True while the worker is (re)baking the caption into the downloadable + GIF renditions, so the
+    # detail page can show progress. The on-platform player overlays the PNG live, so it's unaffected.
+    caption_burning = models.BooleanField(default=False)
 
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     # Public clips are searchable by everyone (the shared catalog); private = owner-only.
