@@ -296,7 +296,14 @@
     // Conditional Focus (Chromium): keep focus on clip.cool instead of jumping to the captured tab.
     let controller = null;
     try { if (typeof CaptureController !== "undefined") controller = new CaptureController(); } catch (e) { controller = null; }
-    const opts = { video: { frameRate: 30 }, audio: true };  // tab audio if the user opts in
+    // Cap the captured surface to 1080p: a 2K/4K tab is pointless for a meme loop and just bloats the
+    // upload + slows the server transcode. The browser downscales at the source; never breaks
+    // background recording (a capture constraint, not a canvas pipeline). Pairs with the ≤1280
+    // server-side rendition cap.
+    const opts = {
+      video: { frameRate: { ideal: 30, max: 30 }, width: { max: 1920 }, height: { max: 1080 } },
+      audio: true,   // tab audio if the user opts in
+    };
     if (controller) opts.controller = controller;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia(opts);

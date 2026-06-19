@@ -17,7 +17,7 @@ import re
 import tempfile
 import uuid
 
-from datetime import timedelta
+import json
 
 from django.conf import settings
 from django.utils import timezone
@@ -615,36 +615,63 @@ def save_caption(user, asset_id, *, text_key, layers):
     return asset
 
 
-def reap_stuck_assets(stuck_minutes=10, max_attempts=3):
-    """Recover assets whose worker died mid-job (e.g. a deploy recreated worker-transcode and a
-    `doing` job was left orphaned — the encode never finishes and the asset sits in TRANSCODING /
-    caption_burning forever). Run periodically off a light queue.
+def reap_stuck_assets(heartbeat_grace=60, max_attempts=3):
+    """Recover jobs orphaned by a dead worker — e.g. a deploy recreated worker-transcode and a
+    `doing` job was left with no worker, so the asset sits in TRANSCODING / caption_burning forever.
 
-    A genuinely un-encodable clip does NOT get stuck here — transcode_asset catches ffmpeg errors and
-    marks the asset FAILED — so this only re-queues true orphans, and even then bounds retries so a
-    pathological input can't loop (it's marked FAILED after max_attempts). Returns the count actioned."""
-    cutoff = timezone.now() - timedelta(minutes=stuck_minutes)
-    from .tasks import transcode_asset, burn_caption_asset
+    Detection is HEARTBEAT-based, not time-based: Procrastinate workers heartbeat every ~1-2s, so a
+    `doing` job is only "orphaned" if its worker's heartbeat is gone/older than heartbeat_grace. That
+    means a long-but-LIVE encode (a big AV1 can run minutes) is never falsely reaped. A genuinely
+    un-encodable clip never reaches here either — transcode_asset catches ffmpeg errors and marks the
+    asset FAILED (job succeeds) — and transcode retries are bounded (→ FAILED after max_attempts) so a
+    pathological input can't loop. Returns the count recovered."""
+    from django.db import connection
+    from .tasks import transcode_asset, burn_caption_asset, process_asset
+    with connection.cursor() as c:
+        c.execute(
+            "SELECT j.id, j.task_name, j.args FROM procrastinate_jobs j "
+            "LEFT JOIN procrastinate_workers w ON w.id = j.worker_id "
+            "WHERE j.status = 'doing' AND (j.worker_id IS NULL OR w.id IS NULL "
+            "  OR w.last_heartbeat < now() - make_interval(secs => %s))",
+            [heartbeat_grace],
+        )
+        stalled = c.fetchall()
     n = 0
-    # Orphaned encodes: stuck in TRANSCODING past the cutoff (real encodes finish in << stuck_minutes).
-    for a in Asset.objects.filter(status=Asset.Status.TRANSCODING, updated_at__lt=cutoff):
-        if a.transcode_attempts >= max_attempts:
-            Asset.objects.filter(pk=a.pk).update(status=Asset.Status.FAILED)
-            logger.error("reap: asset %s stuck after %d transcode attempts → marking FAILED", a.pk, a.transcode_attempts)
+    for job_id, task_name, args in stalled:
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except (ValueError, TypeError):
+                args = {}
+        aid = (args or {}).get("asset_id")
+        # Clear the orphaned job (its worker is dead) so it doesn't linger as a zombie `doing`.
+        with connection.cursor() as c:
+            c.execute("UPDATE procrastinate_jobs SET status='failed' WHERE id=%s AND status='doing'", [job_id])
+        if not aid:
             continue
-        Asset.objects.filter(pk=a.pk).update(
-            status=Asset.Status.PENDING, transcode_attempts=a.transcode_attempts + 1, updated_at=timezone.now())
-        transcode_asset.defer(asset_id=str(a.pk))
-        logger.warning("reap: re-queued stuck transcode %s (attempt %d)", a.pk, a.transcode_attempts + 1)
-        n += 1
-    # Orphaned caption burns: caption_burning never cleared (the burn worker died mid-job).
-    for a in Asset.objects.filter(caption_burning=True, updated_at__lt=cutoff):
-        Asset.objects.filter(pk=a.pk).update(updated_at=timezone.now())   # so we don't re-reap next tick
-        burn_caption_asset.defer(asset_id=str(a.pk))
-        logger.warning("reap: re-queued stuck caption burn %s", a.pk)
+        asset = Asset.objects.filter(pk=aid).first()
+        if asset is None:
+            continue
+        short = (task_name or "").rsplit(".", 1)[-1]
+        if short == "transcode_asset":
+            if asset.transcode_attempts >= max_attempts:
+                Asset.objects.filter(pk=aid).update(status=Asset.Status.FAILED)
+                logger.error("reap: %s stuck after %d attempts → FAILED", aid, asset.transcode_attempts)
+                continue
+            Asset.objects.filter(pk=aid).update(
+                status=Asset.Status.PENDING, transcode_attempts=asset.transcode_attempts + 1, updated_at=timezone.now())
+            transcode_asset.defer(asset_id=str(aid))
+        elif short == "burn_caption_asset":
+            burn_caption_asset.defer(asset_id=str(aid))
+        elif short == "process_asset":
+            Asset.objects.filter(pk=aid).update(status=Asset.Status.PENDING, updated_at=timezone.now())
+            process_asset.defer(asset_id=str(aid))
+        else:
+            continue
+        logger.warning("reap: recovered orphaned %s for asset %s", short, aid)
         n += 1
     if n:
-        logger.info("reap: re-queued %d stuck asset(s)", n)
+        logger.info("reap: recovered %d orphaned job(s)", n)
     return n
 
 

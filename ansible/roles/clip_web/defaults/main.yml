@@ -36,11 +36,11 @@ worker_replicas: 4
 # CPU cap for the dedicated heavy-encode worker (worker-transcode) so AV1/burn ffmpeg can't peg the
 # shared box (web + DB + Keycloak + chat live here too). A string like "2" / "1.5".
 transcode_worker_cpus: "2"
-# Shutdown grace for worker-transcode. A deploy recreates the container (image rebuild); Procrastinate
-# stops fetching new jobs on SIGTERM and finishes the in-flight encode, so Docker must wait this long
-# before SIGKILL — otherwise a running ffmpeg is killed and its job is left stuck in `doing`. Covers a
-# typical meme-length encode; longer than the per-ffmpeg 600s timeout would just stall deploys.
-transcode_stop_grace_period: "300s"
+# Shutdown grace for worker-transcode on recreate. Kept SHORT: the heartbeat reaper re-queues any
+# encode killed mid-flight within ~1-2 min, so we don't need to block deploys waiting for long encodes
+# (a 300s grace stalled deploys ~5 min/box). 30s lets a short meme encode finish cleanly; anything
+# longer is interrupted and auto-recovered. Workers aren't user-facing, so a brief interruption is fine.
+transcode_stop_grace_period: "30s"
 
 # --- Distributed tracing (infra-gap-analysis.md #7, ADR 0015) ---
 # OTLP/gRPC endpoint the app exports spans to: Alloy on the shared `edge` net, which forwards to

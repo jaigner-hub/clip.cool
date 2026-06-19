@@ -82,27 +82,31 @@
   changed_when: true
   when: clip_web_rolling | bool and _drain_script.stat.exists
 
-- name: Build + bring up the app stack
-  community.docker.docker_compose_v2:
-    project_src: "{{ app_dir }}"
-    build: always
-    state: present
-    remove_orphans: true   # drop the retired appdb container (ADR 0016 cutover)
+# Decoupled deploy: recreate ONLY the webapp (this box is LB-drained) so a deploy never disturbs an
+# in-flight encode on the workers. `--no-deps` leaves worker/worker-transcode running on their old
+# containers; `--build` produces the new image both tiers will use. ~90% of deploys are web-only, so
+# this is the common, fast path and encodes keep running.
+- name: Build the image + (re)create the webapp only (--no-deps → workers + encodes untouched)
+  ansible.builtin.command:
+    cmd: docker compose -f {{ app_dir }}/compose.yml up -d --build --no-deps webapp
+  changed_when: true
 
 - name: Run database migrations
   ansible.builtin.command:
     cmd: docker compose -f {{ app_dir }}/compose.yml exec -T webapp python manage.py migrate --noinput
   changed_when: true
 
-# The worker (Procrastinate) is brought up by `compose up` BEFORE the migrate task above, so on a
-# fresh DB it crash-loops until the procrastinate_* tables/functions exist. Restart it once after
-# migrations so every deploy lands on a clean worker regardless of DB state.
-- name: Restart the Procrastinate worker (clean start, post-migrate)
-  ansible.builtin.command:
-    cmd: docker compose -f {{ app_dir }}/compose.yml restart worker
-  changed_when: true
-
+# Put the box back in the pool BEFORE recreating workers, so user-facing downtime is just the (fast)
+# webapp recreate — never gated on the worker tier.
 - name: Re-add this box to the load balancer (waits for local /readyz, then enables the origin)
   ansible.builtin.command: "{{ clip_web_drain_script }} undrain"
   changed_when: true
   when: clip_web_rolling | bool and _drain_script.stat.exists
+
+# Recreate the workers on the freshly built image. Not user-facing → no LB dance; the short
+# transcode_stop_grace_period keeps it quick, and the heartbeat reaper re-queues any encode it
+# interrupts. Also lands them cleanly AFTER migrations (no crash-loop on a fresh-DB first deploy).
+- name: Recreate the Procrastinate workers on the new image
+  ansible.builtin.command:
+    cmd: docker compose -f {{ app_dir }}/compose.yml up -d --no-deps worker worker-transcode
+  changed_when: true

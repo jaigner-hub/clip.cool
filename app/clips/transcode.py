@@ -105,6 +105,10 @@ def _seek(trim):
     return pre, post
 
 
+# Max width for the heavy video renditions (AV1/VP9/H.264). A meme loop doesn't need more, and high-res
+# captures (2K–4K tabs) otherwise slow the encode enough to hit the per-ffmpeg timeout. Never upscales.
+RENDITION_MAX_W = 1280
+
 # gifsicle --lossy level for the GIF re-compression pass. Higher = smaller + more artifacts; ~80 is
 # a strong meme sweet spot (big size cut, loss barely visible on video-derived GIFs). Tune here.
 GIF_LOSSY = 80
@@ -144,20 +148,38 @@ def make_gif(src_path, out_path, crop_filter=None, seek_pre=None, seek_post=None
     return out_path
 
 
+def _scale_cap(w, h):
+    """Downscale filter to keep renditions at most RENDITION_MAX_W wide (height even, never upscale),
+    and the resulting (w, h). A high-res capture (e.g. a 2.4K tab) is pointless for a web/meme loop and
+    can blow past the encode timeout (libx264 preset medium at 2400px is slow). Returns (None, w, h)
+    when no scaling is needed."""
+    if not w or not h or w <= RENDITION_MAX_W:
+        return None, w, h
+    out_w = RENDITION_MAX_W & ~1
+    out_h = int(round(h * out_w / w)) & ~1
+    return "scale=%d:%d:flags=lanczos" % (out_w, out_h), out_w, out_h
+
+
 def transcode(src_path, workdir, crop=None, trim=None):
     """Produce renditions + poster from src_path into workdir. Returns
     {'renditions': [{kind, path, mime}], 'poster': path|None, 'meta': <probe>}.
     `crop` ({x,y,w,h} fractions) is baked into every output via an ffmpeg crop filter; `trim`
     ((start, dur) seconds, dur None = to end) is applied as an input seek so the encode only
-    processes the kept range. Raises RuntimeError if even H.264 fails (no servable fallback)."""
+    processes the kept range. Heavy renditions are downscaled to RENDITION_MAX_W so a high-res capture
+    can't time out the encode. Raises RuntimeError if even H.264 fails (no servable fallback)."""
     meta = probe(src_path)
     cf, cropped = _crop_filter(crop, meta)
     pre, post = _seek(trim)
+    # Base (post-crop) dims → scale cap for the heavy codecs (poster/GIF already downscale on their own).
+    base_w = cropped[0] if cropped else meta.get("width")
+    base_h = cropped[1] if cropped else meta.get("height")
+    scale_f, out_w, out_h = _scale_cap(base_w, base_h)
+    rend_vf = _vf(cf, scale_f)
     renditions = []
     for kind, fname, mime, vargs in _RENDITIONS:
         out = os.path.join(workdir, fname)
         try:
-            vf = ["-vf", cf] if cf else []
+            vf = ["-vf", rend_vf] if rend_vf else []
             _run(["ffmpeg", "-y", *pre, "-i", src_path, *post, *vf, *vargs, out])
             renditions.append({"kind": kind, "path": out, "mime": mime})
         except Exception:
@@ -180,10 +202,10 @@ def transcode(src_path, workdir, crop=None, trim=None):
     except Exception:
         logger.warning("transcode: gif generation failed", exc_info=True)
         gif = None
-    # Report the served dimensions (cropped) + duration (trimmed) so the Asset stores what's actually
-    # served (caption overlays size to these, etc.).
-    if cropped:
-        meta = {**meta, "width": cropped[0], "height": cropped[1]}
+    # Report the served dimensions (post-crop, post-downscale) + duration (trimmed) so the Asset stores
+    # what's actually served — caption overlays are exported at these dims and must match the renditions.
+    if out_w and out_h:
+        meta = {**meta, "width": out_w, "height": out_h}
     if trim:
         start, dur = trim
         if dur is not None:
