@@ -20,8 +20,7 @@
     <p class="kg-muted" id="record-hint">Pick the tab you want to clip, then Record when your moment starts.</p>
   </div>
 
-  {# Live view of the shared tab (srcObject = MediaStream; not a URL, so no CSP media-src concern),
-     with a crop overlay you can drag a selection on. #}
+  {# Live view of the shared tab + a crop overlay you can drag a selection on (single-line {# #} only). #}
   <div id="record-stage" class="clip-record-stage" hidden>
     <video id="record-preview" class="clip-record-video" muted autoplay playsinline></video>
     <canvas id="record-crop" class="clip-crop-overlay"></canvas>

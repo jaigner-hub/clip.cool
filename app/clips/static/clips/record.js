@@ -132,8 +132,26 @@
   function drawBand() {
     syncOverlaySize();
     const c = els.cropCanvas, ctx = c.getContext("2d");
+    if (!c.width || !c.height) return;
     ctx.clearRect(0, 0, c.width, c.height);
-    if (!cropDisp) return;
+    if (!cropDisp) {
+      // Idle affordance: a dashed frame + label so the crop tool is actually discoverable.
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = "rgba(97,217,239,0.9)";     // --kg-cyan
+      ctx.lineWidth = 2;
+      ctx.strokeRect(5, 5, c.width - 10, c.height - 10);
+      ctx.setLineDash([]);
+      const label = "✂ Drag across the video to crop — or just press Record for the whole tab";
+      ctx.font = "600 13px system-ui, -apple-system, sans-serif";
+      ctx.textBaseline = "top";
+      const tw = Math.min(ctx.measureText(label).width, c.width - 20);
+      const bx = (c.width - tw) / 2 - 10;
+      ctx.fillStyle = "rgba(11,18,32,0.7)";
+      ctx.fillRect(bx, 10, tw + 20, 26);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(label, (c.width - tw) / 2, 16, c.width - 20);
+      return;
+    }
     ctx.fillStyle = "rgba(11,18,32,0.55)";          // dim everything…
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.clearRect(cropDisp.x, cropDisp.y, cropDisp.w, cropDisp.h);  // …except the selection
@@ -234,6 +252,7 @@
     show(els.stop, false);
     show(els.reset, false);
     els.preview.addEventListener("loadedmetadata", drawBand, { once: true });
+    requestAnimationFrame(drawBand);   // paint the idle hint once the stage has laid out
     els.share.textContent = "Share a different tab";
   }
 
