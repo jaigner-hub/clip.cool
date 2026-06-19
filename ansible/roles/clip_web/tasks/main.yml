@@ -83,12 +83,20 @@
   when: clip_web_rolling | bool and _drain_script.stat.exists
 
 # Decoupled deploy: recreate ONLY the webapp (this box is LB-drained) so a deploy never disturbs an
-# in-flight encode on the workers. `--no-deps` leaves worker/worker-transcode running on their old
-# containers; `--build` produces the new image both tiers will use. ~90% of deploys are web-only, so
-# this is the common, fast path and encodes keep running.
-- name: Build the image + (re)create the webapp only (--no-deps → workers + encodes untouched)
+# in-flight encode on the workers; the workers are recreated separately below.
+#
+# Build images FIRST, for ALL services. Each service (webapp / worker / worker-transcode) has its own
+# build: block → its own image, so a per-service `up --build` would rebuild only that one and leave
+# the others on stale code. `docker compose build` (no service arg) builds them all (identical context
+# → layer cache makes the 2nd/3rd instant), so the later per-service `up` calls recreate on fresh code.
+- name: Build all service images
   ansible.builtin.command:
-    cmd: docker compose -f {{ app_dir }}/compose.yml up -d --build --no-deps webapp
+    cmd: docker compose -f {{ app_dir }}/compose.yml build
+  changed_when: true
+
+- name: (Re)create ONLY the webapp (--no-deps → workers + their in-flight encodes untouched)
+  ansible.builtin.command:
+    cmd: docker compose -f {{ app_dir }}/compose.yml up -d --no-deps webapp
   changed_when: true
 
 - name: Run database migrations
