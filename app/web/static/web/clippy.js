@@ -34,5 +34,10 @@ document.addEventListener('alpine:init', () => {
       this.open = false;
       try { localStorage.setItem(HIDE_KEY, '1'); } catch (e) {}
     },
+    show() {
+      this.hidden = false;
+      this.open = true;
+      try { localStorage.removeItem(HIDE_KEY); } catch (e) {}
+    },
   }));
 });

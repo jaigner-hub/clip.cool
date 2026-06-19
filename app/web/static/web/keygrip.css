@@ -185,14 +185,33 @@ body.kg-dev.kg-imp { padding-top: 4.85rem; }
   right: 1.25rem;
   bottom: 1.25rem;
   z-index: 1000;
+  pointer-events: none; /* let clicks fall through the gap; children re-enable */
+}
+.clippy-full {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 0.6rem;
-  pointer-events: none; /* let clicks fall through the gap; children re-enable */
 }
 .clippy-bubble,
-.clippy-toggle { pointer-events: auto; }
+.clippy-toggle,
+.clippy-restore { pointer-events: auto; }
+
+/* tiny dimmed paperclip shown after "Hide Clippy" — the way back */
+.clippy-restore {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  background: none;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  line-height: 0;
+  opacity: 0.35;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.clippy-restore:hover { opacity: 1; transform: translateY(-2px); }
+.clippy-restore img { width: 28px; height: 28px; }
 
 .clippy-bubble {
   position: relative;
