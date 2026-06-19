@@ -125,6 +125,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     command: ["python", "manage.py", "procrastinate", "worker", "--queues", "transcode", "--concurrency", "1"]
+    # On recreate/stop, let the in-flight encode finish (Procrastinate drains on SIGTERM) before
+    # SIGKILL — otherwise a deploy mid-transcode leaves the job stuck in `doing` + asset `transcoding`.
+    stop_grace_period: {{ transcode_stop_grace_period }}
     environment:
       <<: *app_env
       OTEL_SERVICE_NAME: clip-worker-transcode
