@@ -314,5 +314,7 @@
   background: #0b1220;
   color: #e2e8f0;
   border-radius: 10px;
+  line-height: 1.4;   /* .clip-media-wrap sets line-height:0 for flush video; restore it here */
 }
+.clip-processing p { margin: 0; }
 .clip-processing .kg-muted { color: #94a3b8; }
