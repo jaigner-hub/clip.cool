@@ -294,3 +294,8 @@
   cursor: crosshair;
   touch-action: none;
 }
+
+/* The author display rules above beat the UA [hidden] rule, so hidden stage/video kept showing.
+   Restore [hidden] for these so the empty preview + playback boxes stay gone until used. */
+.clip-record-stage[hidden],
+.clip-record-video[hidden] { display: none; }

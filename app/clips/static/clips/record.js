@@ -324,32 +324,39 @@
     els.timer.textContent = "Captured " + Math.round(clip.size / 1024) + " KB. Review it, then upload.";
   }
 
+  function uploadFailed(msg) {
+    setStatus(msg, "error");
+    els.upload.disabled = false;
+    els.upload.textContent = "Upload clip";
+  }
+
   async function upload() {
     if (!clip) { setStatus("Record a clip first.", "error"); return; }
+    // Immediate, visible feedback so a click is never silent (and never double-fires).
     els.upload.disabled = true;
+    els.upload.textContent = "Uploading…";
+    setStatus("Requesting upload URL…");
     try {
-      setStatus("Requesting upload URL…");
       const filename = "tab-recording-" + clip.size + ".webm";
       let res = await postJSON(presignURL, { filename: filename, content_type: UPLOAD_TYPE });
-      if (!res.ok) { setStatus("Presign failed: " + (await res.text()), "error"); els.upload.disabled = false; return; }
+      if (!res.ok) { uploadFailed("Presign failed (" + res.status + "): " + (await res.text())); return; }
       const { key, url } = await res.json();
 
       setStatus("Uploading to storage…");
       res = await fetch(url, { method: "PUT", headers: { "Content-Type": UPLOAD_TYPE }, body: clip });
-      if (!res.ok) { setStatus("Upload to R2 failed (" + res.status + "). Check bucket CORS.", "error"); els.upload.disabled = false; return; }
+      if (!res.ok) { uploadFailed("Upload to R2 failed (" + res.status + "). Check bucket CORS."); return; }
 
       setStatus("Finalizing…");
       const tags = (els.tags.value || "").split(",").map(function (t) { return t.trim(); }).filter(Boolean);
       res = await postJSON(finalizeURL, { key: key, title: els.title.value || "", content_type: UPLOAD_TYPE, tags: tags });
-      if (!res.ok) { setStatus("Finalize failed: " + (await res.text()), "error"); els.upload.disabled = false; return; }
+      if (!res.ok) { uploadFailed("Finalize failed (" + res.status + "): " + (await res.text())); return; }
       const asset = await res.json();
 
       setStatus("Uploaded — opening your clip…", "ok");
       stopTracks();
       window.location.href = "/clips/asset/" + encodeURIComponent(asset.id) + "/";
     } catch (err) {
-      setStatus("Error: " + err, "error");
-      els.upload.disabled = false;
+      uploadFailed("Error: " + err);
     }
   }
 
