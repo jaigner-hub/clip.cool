@@ -13,14 +13,13 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 # (kind, output filename, mime, ffmpeg video args)
+# H.264 only: it plays on every device, encodes fast, and at ≤1280 the files are small. VP9
+# (libvpx, very slow) and AV1 (slow) were dropped — their only win is compression, which is moot on
+# R2 (zero egress) for short clips, and neither is universal so H.264 is required regardless. Re-add
+# AV1 here (ideally on AV1-capable HW) if bandwidth/storage ever becomes the driver.
 _RENDITIONS = [
     ("h264", "h264.mp4", "video/mp4",
      ["-c:v", "libx264", "-crf", "23", "-preset", "medium", "-pix_fmt", "yuv420p",
-      "-movflags", "+faststart", "-an"]),
-    ("vp9", "vp9.webm", "video/webm",
-     ["-c:v", "libvpx-vp9", "-crf", "33", "-b:v", "0", "-row-mt", "1", "-an"]),
-    ("av1", "av1.mp4", "video/mp4",
-     ["-c:v", "libsvtav1", "-crf", "35", "-preset", "8", "-pix_fmt", "yuv420p",
       "-movflags", "+faststart", "-an"]),
 ]
 
