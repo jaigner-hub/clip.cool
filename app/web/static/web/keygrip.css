@@ -8,14 +8,17 @@
 @font-face { font-family: 'Tid'; src: url('fonts/Tid-Regular.woff2') format('woff2'); font-weight: 400 500; font-style: normal; font-display: swap; }
 @font-face { font-family: 'Tid'; src: url('fonts/Tid-Bold.woff2') format('woff2');    font-weight: 600 700; font-style: normal; font-display: swap; }
 
+/* clip.cool dark theme (Slate + cyan). Tokens drive the whole app; clips.css references them too. */
 :root {
   --kg-cyan: #61D9EF;
   --kg-cyan-strong: #2bb6d1;
-  --kg-ink: #0F172A;
-  --kg-grey: #475569;
-  --kg-canvas: #EEF2F6;
-  --kg-surface: #FFFFFF;
-  --kg-line: #E2E8F0;
+  --kg-ink: #e6edf3;        /* near-white text */
+  --kg-grey: #8b949e;       /* muted text */
+  --kg-canvas: #0d1117;     /* page background (deep slate) */
+  --kg-surface: #161b22;    /* cards / header / inputs (raised slate) */
+  --kg-surface-2: #1c222b;  /* raised: tags, chips, media placeholders, input fills */
+  --kg-line: #2a3038;       /* borders */
+  --kg-on-accent: #0b1620;  /* dark text on the light cyan accent */
   --kg-serif: 'Tid', Georgia, "Times New Roman", serif;
   --kg-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --kg-radius: 14px;
@@ -47,7 +50,7 @@ body {
   border: 1px solid var(--kg-line);
   border-top: 4px solid var(--kg-cyan);
   border-radius: var(--kg-radius);
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.10);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   padding: 2.25rem 2rem;
 }
 
@@ -82,7 +85,7 @@ body {
   padding: 0.6rem 1.15rem;
   transition: border-color 0.15s, background 0.15s;
 }
-.kg-btn:hover { border-color: var(--kg-ink); background: rgba(15, 23, 42, 0.04); }
+.kg-btn:hover { border-color: var(--kg-ink); background: rgba(255, 255, 255, 0.06); }
 .kg-btn-ghost { border-color: transparent; color: var(--kg-grey); }
 
 /* App shell — authenticated multi-tenant layout (header + main) */
@@ -124,9 +127,9 @@ body {
 
 /* API credentials page */
 .kg-input { font-family: var(--kg-sans); font-size: 0.95rem; padding: 0.55rem 0.8rem; border: 1px solid var(--kg-line); border-radius: 8px; min-width: 18rem; }
-.kg-btn-danger { color: #b42318; border-color: var(--kg-line); }
-.kg-btn-danger:hover { border-color: #b42318; background: rgba(180, 35, 24, 0.06); }
-.kg-alert { background: #fef3f2; border: 1px solid #fda29b; color: #b42318; border-radius: 8px; padding: 0.7rem 1rem; margin-bottom: 1rem; font-size: 0.9rem; }
+.kg-btn-danger { color: #fca5a5; border-color: var(--kg-line); }
+.kg-btn-danger:hover { border-color: #f87171; background: rgba(239, 68, 68, 0.12); }
+.kg-alert { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; border-radius: 8px; padding: 0.7rem 1rem; margin-bottom: 1rem; font-size: 0.9rem; }
 .kg-secret { background: var(--kg-surface); border: 1px solid var(--kg-cyan); border-radius: var(--kg-radius); padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; }
 .kg-secret-title { font-weight: 600; margin: 0 0 0.75rem; }
 .kg-code { background: var(--kg-canvas); border: 1px solid var(--kg-line); border-radius: 8px; padding: 0.8rem 1rem; margin: 0.5rem 0 0; font-size: 0.78rem; line-height: 1.55; overflow-x: auto; white-space: pre; }
@@ -145,7 +148,7 @@ body {
 .kg-impersonating {
   position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
   display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap;
-  background: var(--kg-ink); color: #fff;
+  background: #21262d; color: #fff;
   padding: 0.5rem 1rem; font-size: 0.85rem;
   border-bottom: 3px solid var(--kg-cyan);
 }
@@ -158,7 +161,7 @@ body.kg-imp { padding-top: 2.75rem; }   /* clear the fixed impersonation bar */
 .kg-devbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
   display: flex; align-items: center; justify-content: center; gap: 0.5rem;
-  background: var(--kg-cyan); color: var(--kg-ink);
+  background: var(--kg-cyan); color: var(--kg-on-accent);
   padding: 0.35rem 1rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em;
   border-bottom: 1px solid var(--kg-cyan-strong);
 }
