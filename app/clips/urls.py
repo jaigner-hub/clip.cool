@@ -30,6 +30,7 @@ urlpatterns = [
     path("clips/create/", views.create_gallery, name="clips_create"),
     path("clips/create/<uuid:template_id>/", views.builder, name="clips_builder"),
     path("clips/template/<uuid:template_id>/raw", views.template_image, name="clips_template_image"),
+    path("clips/asset/<uuid:asset_id>/status", views.asset_status, name="clips_asset_status"),
     path("clips/asset/<uuid:asset_id>/edit/", views.asset_edit, name="clips_edit"),
     path("clips/asset/<uuid:asset_id>/regenerate/", views.asset_regenerate, name="clips_regenerate"),
     path("clips/asset/<uuid:asset_id>/delete/", views.asset_delete, name="clips_delete"),

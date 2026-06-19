@@ -44,6 +44,22 @@ def asset_detail(request, asset_id):
     })
 
 
+def asset_status(request, asset_id):
+    """Tiny JSON poll target for the detail page so it can wait in the background instead of
+    meta-refreshing the whole page (which restarts a playing clip). Same visibility rules as the
+    detail view: public+ready ⇒ anyone; otherwise owner/superuser."""
+    asset = services.get_public_asset(asset_id)
+    if asset is None and request.user.is_authenticated:
+        asset = services.get_asset_for(request.user, asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    return JsonResponse({
+        "status": asset.status,
+        "caption_burning": bool(asset.caption_burning),
+        "ready": asset.status == Asset.Status.READY and not asset.caption_burning,
+    })
+
+
 @login_required
 def asset_edit(request, asset_id):
     asset = services.get_asset_for(request.user, asset_id)

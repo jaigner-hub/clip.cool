@@ -2,7 +2,6 @@
 {% load static %}
 {% block head %}
 <link rel="stylesheet" href="{% static 'clips/clips.css' %}">
-{% if asset.status == 'pending' or asset.status == 'transcoding' or asset.caption_burning %}<meta http-equiv="refresh" content="3">{% endif %}
 {# Open Graph / Twitter — so the canonical link unfurls (and autoplays) in chat/social. #}
 {% if a.is_public %}
 <meta property="og:site_name" content="clip.cool">
@@ -31,7 +30,10 @@
   {% else %}<a class="kg-acct-link" href="{% url 'clips_search' %}">← Search</a>{% endif %}
 </div>
 
-<div class="clip-detail">
+<div class="clip-detail" id="clip-detail"
+     data-status-url="{% url 'clips_asset_status' asset.id %}"
+     data-status="{{ asset.status }}"
+     data-caption-burning="{{ asset.caption_burning|yesno:'1,0' }}">
   <div class="clip-detail-media">
     <div class="clip-media-wrap">
       {% if a.media_type == 'video' and sources %}
@@ -63,7 +65,7 @@
       <p class="clip-status">processing failed</p>
     {% endif %}
     {% if asset.caption_burning %}
-      <p class="clip-status">baking caption into the GIF &amp; download… <span class="kg-muted">the page link works now; this refreshes when ready</span></p>
+      <p class="clip-status" id="caption-burning-note">baking caption into the GIF &amp; download… <span class="kg-muted">the page link works now; the GIF/download update when ready</span></p>
     {% endif %}
 
     <h1 class="kg-title">{{ a.title|default:"Untitled" }}</h1>
@@ -124,4 +126,5 @@
   </div>
 </div>
 <script src="{% static 'clips/share.js' %}" defer></script>
+<script src="{% static 'clips/poll.js' %}" defer></script>
 {% endblock %}
