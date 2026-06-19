@@ -121,7 +121,8 @@ def _optimize_gif(path):
     change) + optional --lossy when GIF_LOSSY > 0. Best-effort — if gifsicle is missing or errors,
     keep the ffmpeg GIF untouched."""
     tmp = path + ".opt"
-    args = ["gifsicle", "-O3"]
+    # -O2 not -O3: O3 is much slower for ~marginal extra savings, brutal on big (long-clip) GIFs.
+    args = ["gifsicle", "-O2"]
     if GIF_LOSSY:
         args.append("--lossy=%d" % GIF_LOSSY)
     args += [path, "-o", tmp]
@@ -148,7 +149,7 @@ def make_gif(src_path, out_path, crop_filter=None, seek_pre=None, seek_post=None
     # smaller). 20fps, 640px. A per-frame palette (stats_mode=single/new=1) looks marginally better but
     # is FAR slower — it recomputes a palette every frame, which made caption burns of long clips take
     # minutes. GIF is 8-bit so dark gradients still band; the <video> is the quality path.
-    vf = _vf(crop_filter, "fps=20", "scale='min(640,iw)':-2:flags=lanczos") + \
+    vf = _vf(crop_filter, "fps=15", "scale='min(640,iw)':-2:flags=lanczos") + \
         ",split[s0][s1];[s0]palettegen=stats_mode=diff[p];" \
         "[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
     _run(["ffmpeg", "-y", *(seek_pre or []), "-i", src_path, *(seek_post or []), "-vf", vf, out_path])
