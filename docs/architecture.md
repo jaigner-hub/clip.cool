@@ -61,10 +61,12 @@ Per video upload, emit:
 - **Downscale to ≤1280px** (`RENDITION_MAX_W`) — a high-res capture can't time out the encode.
 - **Poster** — representative frame → WebP.
 - **GIF** — the chat-autoplay fallback (Discord/Signal only loop real GIFs). Per-frame local palettes
-  (`palettegen stats_mode=single` → `paletteuse new=1`), 640px, `gifsicle -O3` lossless. Still 8-bit,
-  so dark gradients band somewhat — the `<video>` is the quality path.
-- **Captioned MP4 + GIF** — burned in on first caption save (`burn_caption_asset`), for download /
-  off-platform share where the overlay can't ride along.
+  (`palettegen stats_mode=single` → `paletteuse new=1`), 20fps, 640px, `gifsicle -O2` lossless. Still
+  8-bit, so dark gradients band somewhat — the `<video>` is the quality path. A long clip is a big,
+  slow GIF regardless (it's the format) — trim it or share the MP4.
+- **Captioned MP4 + GIF** — burned in on first caption save (`burn_caption_asset`, `libx264 -preset
+  veryfast`), for download / off-platform share where the overlay can't ride along. On-platform
+  captioning is a live CSS overlay (instant, no encode).
 
 `worker-transcode` is a dedicated container (concurrency 1) so a heavy encode can't starve the light
 `thumbs`/`index` queues. The Postgres-backed queue makes it horizontal later (e.g. a GPU worker on the

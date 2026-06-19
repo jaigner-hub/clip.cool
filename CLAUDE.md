@@ -122,9 +122,11 @@ automated test/secret-scan gate** — be careful committing.
   only if bandwidth/storage becomes the driver — and on **AV1-capable HW** (the homelab NAS GPU is an
   Intel **UHD 630**: H.264/HEVC encode only, *no* AV1/VP9 — so it can't accelerate our slow codecs).
 - **Renditions downscale to ≤1280px** (`RENDITION_MAX_W`) so a 2K/4K capture can't time out the encode.
-- **GIF**: per-frame palettes (`palettegen stats_mode=single` → `paletteuse new=1`), 640px, `gifsicle
-  -O3` **lossless** (no `--lossy` — it visibly degraded; `GIF_LOSSY=0`). GIF is the chat fallback
-  (Discord/Signal only autoplay real GIFs); the `<video>`/`.mp4` is the quality path.
+- **GIF**: per-frame palettes (`palettegen stats_mode=single` → `paletteuse new=1`), 20fps, 640px,
+  `gifsicle -O2` **lossless** (no `--lossy` — it visibly degraded; `GIF_LOSSY=0`). GIF is the chat
+  fallback (Discord/Signal only autoplay real GIFs); the `<video>`/`.mp4` is the quality path. Long
+  clips make big/slow GIFs (it's the format) — trim them. Caption burn-in uses `libx264 -preset
+  veryfast` (download-only artifact); on-platform captioning is a live CSS overlay (instant, no encode).
 - **In-browser tab recorder** (`/clips/record/`) is live — crop + trim + caption a clip from any tab,
   no plugin. Crop/trim are selected client-side but **baked server-side** at transcode (`Asset.crop`,
   `trim_start/_end`). See [`docs/browser-recorder.md`](./docs/browser-recorder.md).
