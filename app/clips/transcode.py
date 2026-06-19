@@ -110,8 +110,12 @@ def make_gif(src_path, out_path, crop_filter=None, seek_pre=None, seek_post=None
     of a raw GIF. Reused by the transcode pass and by caption burn-in (so the shareable GIF carries
     the caption). `crop_filter` is an optional leading ffmpeg `crop=...`; seek_pre/seek_post carry a
     trim (used at transcode; a caption burn passes an already-cropped+trimmed source so they're omitted)."""
-    vf = _vf(crop_filter, "fps=15", "scale='min(480,iw)':-1:flags=lanczos") + \
-        ",split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer"
+    # Quality-tuned GIF (matches the Snipper editor): 20fps for smoother motion, a full 256-colour
+    # palette weighted toward the moving regions (stats_mode=diff), fine Bayer dither, and
+    # diff_mode=rectangle so only changed areas are re-dithered (sharper text/edges, smaller file).
+    vf = _vf(crop_filter, "fps=20", "scale='min(480,iw)':-2:flags=lanczos") + \
+        ",split[s0][s1];[s0]palettegen=stats_mode=diff[p];" \
+        "[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
     _run(["ffmpeg", "-y", *(seek_pre or []), "-i", src_path, *(seek_post or []), "-vf", vf, out_path])
     return out_path
 
