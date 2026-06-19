@@ -249,6 +249,16 @@ def download_url(asset):
     return storage.presign_get(key, filename="%s%s" % (safe, ext))
 
 
+def gif_download_url(asset):
+    """Presigned GET that force-downloads the GIF rendition (named for the clip), or '' if none."""
+    r = asset.renditions.filter(kind=Rendition.Kind.GIF).first()
+    if not r:
+        return ""
+    base = (asset.title or "").strip() or str(asset.id)
+    safe = "".join(c if (c.isalnum() or c in " -_") else "" for c in base).strip() or str(asset.id)
+    return storage.presign_get(r.r2_key, filename="%s.gif" % safe)
+
+
 def _store_gif(asset, gif_path):
     """Upload a GIF file as the asset's GIF rendition (overwriting the previous one)."""
     data = open(gif_path, "rb").read()

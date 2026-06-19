@@ -134,6 +134,20 @@ def clip_download(request, asset_id):
     return redirect(services.download_url(asset))
 
 
+def clip_download_gif(request, asset_id):
+    """Force-download the GIF rendition (Content-Disposition: attachment) — for saving the actual .gif
+    to share where only a real GIF autoplays (Discord/Signal). Same visibility as clip_download."""
+    asset = services.get_public_asset(asset_id)
+    if asset is None and request.user.is_authenticated:
+        asset = services.get_asset_for(request.user, asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    url = services.gif_download_url(asset)
+    if not url:
+        raise Http404("No GIF rendition.")
+    return redirect(url)
+
+
 @login_required
 def caption_builder(request, asset_id):
     """Caption an existing clip (overlay mode): add text over the video/image; saves editable

@@ -109,18 +109,23 @@ def _seek(trim):
 # captures (2K–4K tabs) otherwise slow the encode enough to hit the per-ffmpeg timeout. Never upscales.
 RENDITION_MAX_W = 1280
 
-# gifsicle --lossy level for the GIF re-compression pass. Higher = smaller + more artifacts; ~80 is
-# a strong meme sweet spot (big size cut, loss barely visible on video-derived GIFs). Tune here.
-GIF_LOSSY = 80
+# gifsicle --lossy level for the GIF re-compression pass. 0 = LOSSLESS only (-O3): visibly degraded
+# the GIF at higher values, so we keep it off. Bump >0 only if you want smaller files at the cost of
+# quality (e.g. 30 is gentle, 80 is aggressive).
+GIF_LOSSY = 0
 
 
 def _optimize_gif(path):
-    """Shrink the GIF in place with gifsicle: -O3 (fully lossless re-pack) + --lossy (gentle, near-
-    invisible) so the chat GIF is small. Best-effort — if gifsicle is missing or errors, keep the
-    ffmpeg GIF untouched."""
+    """Shrink the GIF in place with gifsicle -O3 (fully lossless re-pack; ~10-25% smaller, no quality
+    change) + optional --lossy when GIF_LOSSY > 0. Best-effort — if gifsicle is missing or errors,
+    keep the ffmpeg GIF untouched."""
     tmp = path + ".opt"
+    args = ["gifsicle", "-O3"]
+    if GIF_LOSSY:
+        args.append("--lossy=%d" % GIF_LOSSY)
+    args += [path, "-o", tmp]
     try:
-        _run(["gifsicle", "-O3", "--lossy=%d" % GIF_LOSSY, path, "-o", tmp])
+        _run(args)
         os.replace(tmp, path)
     except FileNotFoundError:
         logger.info("gifsicle not installed; skipping GIF re-compression")

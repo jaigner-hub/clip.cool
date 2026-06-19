@@ -109,6 +109,7 @@
         <div class="clip-share-row">
           <input type="text" id="gif-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public_gif' asset.id %}">
           <button type="button" class="kg-btn kg-btn-sm" data-copy="#gif-url">Copy</button>
+          <a class="kg-btn kg-btn-sm" href="{% url 'clip_download_gif' asset.id %}">Download ↓</a>
         </div>
       </div>
       {% endif %}
