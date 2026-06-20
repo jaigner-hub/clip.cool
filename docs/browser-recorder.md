@@ -13,8 +13,10 @@ A page at **`/clips/record/`** (nav: **Record**, signed-in users) that:
 1. **Shares a browser tab** via `navigator.mediaDevices.getDisplayMedia()` — no extension, no install.
 2. **Records the moment** with `MediaRecorder` (the record window *is* the trim) into a `video/webm`
    blob.
-3. **Optionally crop** (drag a box on the live preview) and **trim** (in/out scrubber on the
-   recorded clip).
+3. **Optionally crop and trim** the **recorded clip** — once you stop, the captured clip loops on the
+   page and you drag a crop box right on it and set in/out handles, then upload. (Both are *selections*
+   baked in server-side at transcode — see below.) Crop moved off the live preview so the floating
+   recorder window stays just preview + Record, and so you frame the crop against the real footage.
 4. **Uploads** through the **existing** ingest path — presign → PUT-to-R2 → finalize — exactly like a
    file upload. `video/webm` already routes to the transcode queue, so there were **no backend ingest
    changes** for the recorder itself; crop/trim are applied server-side at transcode.
@@ -26,7 +28,7 @@ caption it like any clip.
 
 | File | Role |
 |---|---|
-| `app/templates/clips/record.html` | The page: share button, live preview + crop overlay, playback + trim bar, title/tags, upload. Loads `clips.css` + `record.js`. |
+| `app/templates/clips/record.html` | The page: share button, live preview (floats during record), the recorded-clip edit stage (playback + crop overlay) + trim bar, title/tags, upload. Loads `clips.css` + `record.js`. |
 | `app/clips/static/clips/record.js` | All client logic (CSP-clean external script): getDisplayMedia, MediaRecorder, crop selection, trim scrubber, presign/PUT/finalize. |
 | `app/clips/views.py` → `record_page` | `@login_required @ensure_csrf_cookie`; renders `record.html`. Reuses `presign`/`finalize`. |
 | `app/clips/urls.py` → `clips_record` | Route `clips/record/`. |
@@ -48,6 +50,12 @@ background), keep the crop/trim as *selections*, and **bake them in with ffmpeg 
 
 The trim scrubber's timeline uses the **wall-clock record length** as its reference, because
 MediaRecorder's webm duration metadata is unreliable (often `Infinity` until you seek to the end).
+
+The crop **selection** is likewise drawn *after* recording — a drag-box over the looping recorded clip
+(not the live preview). Same server-side bake, but it declutters the floating recorder window (just
+preview + Record) and lets you frame the crop against the actual footage rather than guessing live.
+The selection is stored as fractions of the source frame, so it maps onto the full-frame webm at any
+resolution.
 
 ### Why not Region Capture (`cropTo`)?
 The purpose-built "crop a captured tab to one element" API is **self-capture only** — it can only crop

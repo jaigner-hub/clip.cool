@@ -22,14 +22,20 @@
     <p class="kg-muted" id="record-hint">Pick the tab you want to clip, then Record when your moment starts.</p>
   </div>
 
-  {# Live view of the shared tab, plus a drag-to-crop overlay canvas. #}
+  {# Live view of the shared tab — this is what floats in the PiP window while recording. #}
   <div id="record-stage" class="clip-record-stage" hidden>
     <video id="record-preview" class="clip-record-video" muted autoplay playsinline></video>
-    <canvas id="record-crop" class="clip-crop-overlay"></canvas>
   </div>
 
-  {# Playback of the captured clip (blob: URL — allowed by media-src blob:). #}
-  <video id="record-playback" class="clip-record-video" controls playsinline hidden></video>
+  {# Edit the captured clip (blob: URL — allowed by media-src blob:): drag a crop box right on it,
+     trim below, then upload. The clip loops muted so you can frame the crop against real footage. #}
+  <div id="record-edit-stage" class="clip-record-stage" hidden>
+    <video id="record-playback" class="clip-record-video" muted loop playsinline></video>
+    <canvas id="record-crop" class="clip-crop-overlay"></canvas>
+  </div>
+  <div class="kg-row" id="record-crop-row">
+    <button type="button" id="record-crop-reset" class="kg-btn kg-btn-sm" hidden>Clear crop</button>
+  </div>
 
   {# Trim scrubber: drag the in/out handles to set the kept range (applied at transcode). #}
   <div id="record-trim" class="clip-trim" hidden>
@@ -48,7 +54,6 @@
   <div class="kg-row" id="record-controls" hidden>
     <button type="button" id="record-start" class="kg-btn">● Record</button>
     <button type="button" id="record-stop" class="kg-btn" hidden>■ Stop</button>
-    <button type="button" id="record-crop-reset" class="kg-btn kg-btn-sm" hidden>Clear crop</button>
     <button type="button" id="record-reset" class="kg-btn kg-btn-sm" hidden>Re-record</button>
     <span id="record-timer" class="kg-muted" aria-live="polite"></span>
   </div>

@@ -22,6 +22,7 @@
     stage: document.getElementById("record-stage"),
     preview: document.getElementById("record-preview"),
     cropCanvas: document.getElementById("record-crop"),
+    editStage: document.getElementById("record-edit-stage"),
     playback: document.getElementById("record-playback"),
     trim: document.getElementById("record-trim"),
     trimBar: document.getElementById("trim-bar"),
@@ -116,7 +117,9 @@
     if (clipURL) { URL.revokeObjectURL(clipURL); clipURL = null; }
     clip = null;
     chunks = [];
-    show(els.playback, false);
+    cropDisp = null;
+    show(els.cropReset, false);
+    show(els.editStage, false);
     show(els.trim, false);
     show(els.meta, false);
   }
@@ -205,8 +208,10 @@
   // --- crop selection (overlay drawn in display px; converted to source px at record time) ---
 
   function syncOverlaySize() {
-    // 1 overlay px == 1 displayed CSS px, so pointer offsets map straight onto the canvas.
-    const w = els.preview.clientWidth, h = els.preview.clientHeight;
+    // 1 overlay px == 1 displayed CSS px, so pointer offsets map straight onto the canvas. The crop
+    // overlay sits over the RECORDED clip (playback) now, not the live preview — you crop after the
+    // fact, right before upload.
+    const w = els.playback.clientWidth, h = els.playback.clientHeight;
     if (w && h && (els.cropCanvas.width !== w || els.cropCanvas.height !== h)) {
       els.cropCanvas.width = w;
       els.cropCanvas.height = h;
@@ -225,7 +230,7 @@
       ctx.lineWidth = 2;
       ctx.strokeRect(5, 5, c.width - 10, c.height - 10);
       ctx.setLineDash([]);
-      const label = "✂ Drag across the video to crop — or just press Record for the whole tab";
+      const label = "✂ Drag across the clip to crop — or upload the whole tab";
       ctx.font = "600 13px system-ui, -apple-system, sans-serif";
       ctx.textBaseline = "top";
       const tw = Math.min(ctx.measureText(label).width, c.width - 20);
@@ -248,7 +253,6 @@
     cropDisp = null;
     drawBand();
     show(els.cropReset, false);
-    els.hint.textContent = "Recording the whole tab. Drag a box over the area you want to crop it.";
   }
 
   function onPointerDown(e) {
@@ -282,7 +286,6 @@
     }
     drawBand();
     show(els.cropReset, true);
-    els.hint.textContent = "Cropping to your selection (applied when you upload). Drag again to redo, or Clear crop.";
   }
 
   // The selection as fractions (0..1) of the source frame — resolution-independent, so the server
@@ -400,14 +403,11 @@
       teardownPreview();
     });
     els.preview.srcObject = stream;
-    clearCrop();
     show(els.stage, true);
     show(els.controls, true);
     show(els.start, true);
     show(els.stop, false);
     show(els.reset, false);
-    els.preview.addEventListener("loadedmetadata", drawBand, { once: true });
-    requestAnimationFrame(drawBand);   // paint the idle hint once the stage has laid out
     els.share.textContent = "Share a different tab";
     if (pipSupported()) {
       show(els.pip, true);
@@ -453,8 +453,8 @@
     show(els.stop, true);
     show(els.reset, false);
     show(els.cropReset, false);
-    show(els.playback, false);
-    els.cropCanvas.style.cursor = "default";
+    show(els.editStage, false);
+    show(els.stage, true);   // ensure the live preview is up (matters on "Record again")
     timerId = setInterval(tick, 250);
     tick();
   }
@@ -476,16 +476,21 @@
     fixDurationThen(function (d) {
       clipDuration = (isFinite(d) && d > 0) ? d : recordedSeconds;
       initTrim();
+      // Crop happens HERE now — on the recorded clip, right before upload. Arm the overlay over the
+      // (now laid-out, visible) playback and loop it muted so the box is framed against real footage.
+      clearCrop();
+      requestAnimationFrame(drawBand);
+      els.playback.play().catch(function () {});
     });
     show(els.stage, false);
-    show(els.playback, true);
+    show(els.editStage, true);
     show(els.stop, false);
     show(els.start, true);
     els.start.textContent = "● Record again";
     show(els.reset, false);
     show(els.meta, true);
-    els.timer.textContent = "Captured " + Math.round(clip.size / 1024) + " KB"
-      + (cropFractions() ? " — your crop is applied after upload." : ". Trim it below, then upload.");
+    els.timer.textContent = "Captured " + Math.round(clip.size / 1024)
+      + " KB — drag on the clip to crop, trim below, then upload.";
   }
 
   // MediaRecorder webm blobs often report duration=Infinity until you seek to the end. Force the
