@@ -197,9 +197,17 @@ def transcode(src_path, workdir, crop=None, trim=None):
         raise RuntimeError("H.264 transcode failed; cannot serve the asset.")
     poster = os.path.join(workdir, "poster.webp")
     try:
+        # Grab the FIRST frame of the (cropped, trimmed) range. We dropped the `thumbnail` filter: it
+        # buffers a 100-frame batch to pick a "representative" frame and emits NOTHING at EOF on clips
+        # shorter than that batch — ffmpeg still exits 0, leaving an empty 8-byte webp (a broken
+        # thumbnail in the grid). Short trimmed clips are exactly our common case, and since the user
+        # trims to the moment they want, frame 1 of the trim is the right poster anyway.
         _run(["ffmpeg", "-y", *pre, "-i", src_path, *post,
-              "-vf", _vf(cf, "thumbnail", "scale='min(640,iw)':-1"), "-frames:v", "1",
+              "-vf", _vf(cf, "scale='min(640,iw)':-1"), "-frames:v", "1",
               "-c:v", "libwebp", "-quality", "80", poster])
+        # Backstop: ffmpeg can exit 0 yet write an empty file, so never accept a degenerate poster.
+        if os.path.getsize(poster) < 256:
+            raise RuntimeError("poster came out empty (%d bytes)" % os.path.getsize(poster))
     except Exception:
         logger.warning("transcode: poster generation failed", exc_info=True)
         poster = None
