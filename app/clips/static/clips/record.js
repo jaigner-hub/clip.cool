@@ -365,7 +365,9 @@
     closePip();
     resetClip();
     setStatus("");
-    // Conditional Focus (Chromium): keep focus on clip.cool instead of jumping to the captured tab.
+    // Conditional Focus (Chromium): decide where focus lands when the picker closes (set below, right
+    // after getDisplayMedia resolves). With the float carrying Record, we WANT to land on the shared
+    // tab; without it, we keep focus here so the page controls stay reachable.
     let controller = null;
     try { if (typeof CaptureController !== "undefined") controller = new CaptureController(); } catch (e) { controller = null; }
     // Cap the captured surface to 1080p: a 2K/4K tab is pointless for a meme loop and just bloats the
@@ -383,9 +385,14 @@
       setStatus(err && err.name === "NotAllowedError" ? "Sharing cancelled." : "Couldn't start sharing: " + err, "error");
       return;
     }
-    // Must be set right after the promise resolves (before yielding to the event loop), per spec.
+    // Must be set right after the promise resolves (before yielding to the event loop), per spec — so
+    // it's a synchronous pipSupported() check, not the (async) result of actually opening the float.
+    // Float available → focus the captured tab so the user can press play immediately (the always-on-
+    // top float carries Record). No float → keep focus on clip.cool so the page controls stay visible.
     if (controller && controller.setFocusBehavior) {
-      try { controller.setFocusBehavior("no-focus-change"); } catch (e) { /* unsupported / too late */ }
+      try {
+        controller.setFocusBehavior(pipSupported() ? "focus-captured-surface" : "no-focus-change");
+      } catch (e) { /* unsupported / too late */ }
     }
     // If the user clicks the browser's native "Stop sharing", tear down gracefully.
     stream.getVideoTracks()[0].addEventListener("ended", function () {

@@ -55,10 +55,21 @@ the *same* tab doing the capture, never a different tab (YouTube). So it can't h
 client-side region crop that survives backgrounding would need a WebCodecs / insertable-streams worker
 (`MediaStreamTrackProcessor`) — a bigger, Chromium-only build, deferred unless upload size demands it.
 
-### Keep focus on clip.cool
+### Focus follows the float (Conditional Focus API)
 Sharing a tab normally yanks focus to the captured tab. We use the **Conditional Focus API**
-(`CaptureController.setFocusBehavior("no-focus-change")`, feature-detected) so focus stays on
-clip.cool after you pick the tab.
+(`CaptureController.setFocusBehavior(...)`, feature-detected) to *choose* where focus lands, and the
+choice is **tied to whether we can float the controls**:
+
+- **Float available (Document PiP):** `"focus-captured-surface"` — let focus jump to the shared tab so
+  the user can immediately press play; the always-on-top float carries Record, so nothing's buried.
+- **No float (Firefox/Safari):** `"no-focus-change"` — keep focus on clip.cool so the in-page Record
+  button stays reachable (the original behavior).
+
+The behavior must be set **synchronously** in the `getDisplayMedia` resolution (before yielding to the
+event loop, per spec), so it keys off the *synchronous* `pipSupported()` check — not the async result
+of actually opening the float. The rare mismatch (PiP supported but `requestWindow()` later fails on
+activation) just lands the user on the shared tab with the controls still on the page — i.e. the
+pre-float tab-dance, no worse.
 
 ### Pop the controls out (Document Picture-in-Picture)
 The tab-dance — switch to the source tab to press play, switch back to hit Record — is the recorder's
