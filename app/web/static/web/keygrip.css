@@ -87,6 +87,41 @@ body {
 }
 .kg-btn:hover { border-color: var(--kg-ink); background: rgba(255, 255, 255, 0.06); }
 .kg-btn-ghost { border-color: transparent; color: var(--kg-grey); }
+/* Filled accent button for the primary action of a form (Upload, Record, Share). */
+.kg-btn-primary { background: var(--kg-cyan); border-color: var(--kg-cyan); color: var(--kg-on-accent); }
+.kg-btn-primary:hover { background: var(--kg-cyan-strong); border-color: var(--kg-cyan-strong); }
+
+/* Form fields — shared primitives used by the clip forms (record, upload, caption, edit, builder).
+   This is the baseline that finally styles the bare record/upload inputs; the page-scoped rules in
+   clips.css (.builder-controls / .clip-edit-form) load later and override these where they differ. */
+.kg-field { margin-bottom: 1.15rem; }
+.kg-field > label { display: block; margin-bottom: 0.4rem; font-size: 0.85rem; font-weight: 600; color: var(--kg-ink); }
+.kg-field > input[type="text"],
+.kg-field > input[type="file"],
+.kg-field > input:not([type]),
+.kg-field > textarea,
+.kg-field > select {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--kg-sans);
+  font-size: 0.95rem;
+  color: var(--kg-ink);
+  background: var(--kg-surface-2);
+  border: 1px solid var(--kg-line);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.kg-field > input::placeholder,
+.kg-field > textarea::placeholder { color: var(--kg-grey); }
+.kg-field > input[type="file"] { cursor: pointer; padding: 0.5rem 0.6rem; }
+.kg-field > input:focus,
+.kg-field > textarea:focus,
+.kg-field > select:focus {
+  outline: none;
+  border-color: var(--kg-cyan);
+  box-shadow: 0 0 0 3px rgba(97, 217, 239, 0.18);
+}
 
 /* App shell — authenticated multi-tenant layout (header + main) */
 .kg-app { width: 100%; min-height: 100vh; display: flex; flex-direction: column; }

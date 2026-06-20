@@ -10,14 +10,14 @@
     picker if you want sound.</p>
 </div>
 
-<div id="clip-record" class="kg-panel"
+<div id="clip-record" class="kg-card"
      data-presign-url="{% url 'clips_presign' %}"
      data-finalize-url="{% url 'clips_finalize' %}"
      data-search-url="{% url 'clips_search' %}"
      data-max-seconds="60">
 
   <div class="kg-field">
-    <button type="button" id="record-share" class="kg-btn">Share a browser tab</button>
+    <button type="button" id="record-share" class="kg-btn kg-btn-primary">Share a browser tab</button>
     <button type="button" id="record-pip" class="kg-btn kg-btn-sm" hidden>⧉ Pop out controls</button>
     <p class="kg-muted" id="record-hint">Pick the tab you want to clip, then Record when your moment starts.</p>
   </div>
@@ -51,7 +51,7 @@
   </div>
 
   <div class="kg-row" id="record-controls" hidden>
-    <button type="button" id="record-start" class="kg-btn">● Record</button>
+    <button type="button" id="record-start" class="kg-btn kg-btn-primary">● Record</button>
     <button type="button" id="record-stop" class="kg-btn" hidden>■ Stop</button>
     <button type="button" id="record-reset" class="kg-btn kg-btn-sm" hidden>Re-record</button>
     <span id="record-timer" class="kg-muted" aria-live="polite"></span>
@@ -67,7 +67,7 @@
       <input type="text" id="record-tags" placeholder="reaction, funny">
     </div>
     <div class="kg-row">
-      <button type="button" id="record-upload" class="kg-btn">Upload clip</button>
+      <button type="button" id="record-upload" class="kg-btn kg-btn-primary">Upload clip</button>
       <a class="kg-btn kg-btn-sm" href="{% url 'clips_search' %}">Search</a>
     </div>
   </div>

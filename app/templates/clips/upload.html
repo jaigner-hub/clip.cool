@@ -7,7 +7,7 @@
   <p class="kg-sub">It uploads straight to storage, then we generate a poster, OCR the text, and index it for search.</p>
 </div>
 
-<form id="clip-upload" class="kg-panel"
+<form id="clip-upload" class="kg-card"
       data-presign-url="{% url 'clips_presign' %}"
       data-finalize-url="{% url 'clips_finalize' %}"
       data-search-url="{% url 'clips_search' %}">
@@ -24,7 +24,7 @@
     <input type="text" id="clip-tags" placeholder="reaction, classic">
   </div>
   <div class="kg-row">
-    <button type="submit" class="kg-btn">Upload</button>
+    <button type="submit" class="kg-btn kg-btn-primary">Upload</button>
     <a class="kg-btn kg-btn-sm" href="{% url 'clips_search' %}">Search</a>
   </div>
   <p id="clip-status" class="kg-status" role="status" aria-live="polite"></p>
