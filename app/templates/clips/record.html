@@ -27,8 +27,7 @@
     <video id="record-preview" class="clip-record-video" muted autoplay playsinline></video>
   </div>
 
-  {# Edit the captured clip (blob: URL — allowed by media-src blob:): drag a crop box right on it,
-     trim below, then upload. The clip loops muted so you can frame the crop against real footage. #}
+  {# Edit the captured clip (blob: URL — allowed by media-src blob:): crop box + trim, then upload. #}
   <div id="record-edit-stage" class="clip-record-stage" hidden>
     <video id="record-playback" class="clip-record-video" muted loop playsinline></video>
     <canvas id="record-crop" class="clip-crop-overlay"></canvas>
