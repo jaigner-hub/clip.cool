@@ -131,6 +131,7 @@
 .clip-card > a {
   display: block;
   line-height: 0;
+  position: relative;   /* anchor the caption overlay (.clip-thumb-cap) */
 }
 
 .clip-thumb {
@@ -139,6 +140,19 @@
   object-fit: cover;
   display: block;
   background: var(--kg-surface-2);
+}
+
+/* Caption overlay on a grid thumb: the rendered caption PNG layered over the poster, so a captioned
+   clip previews WITH its text (same as the detail page). Matches the thumb's box + object-fit so the
+   two crop identically and stay aligned. */
+.clip-thumb-cap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  pointer-events: none;
 }
 
 .clip-meta {

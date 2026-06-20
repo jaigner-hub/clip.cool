@@ -16,6 +16,7 @@
     <a href="{% url 'clips_asset' r.id %}" title="{{ r.description }}">
       {% if r.poster_url %}
       <img class="clip-thumb" src="{{ r.poster_url }}" alt="{{ r.title|default:'clip' }}" loading="lazy">
+      {% if r.text_layer_url %}<img class="clip-thumb-cap" src="{{ r.text_layer_url }}" alt="" loading="lazy">{% endif %}
       {% else %}
       <div class="clip-thumb clip-thumb-empty">transcoding…</div>
       {% endif %}
