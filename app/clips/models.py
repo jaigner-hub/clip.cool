@@ -29,6 +29,16 @@ class Asset(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="assets"
     )
+    # True for clips made via the in-browser Record feature (clips/record/). This is what defines the
+    # public template library (clips.services.list_template_clips): a recorded clip that's public +
+    # ready is browsable + remixable by anyone. Uploads/remixes stay False. db_index: the library
+    # query filters on it.
+    from_recorder = models.BooleanField(default=False, db_index=True)
+    # Lineage: the template Asset this one was remixed from (clips.services.create_remix), or null for
+    # an original. SET_NULL so deleting a template doesn't cascade-delete everyone's remixes of it.
+    remixed_from = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="remixes"
+    )
 
     # R2 object keys (bucket-relative). poster = the WebP thumbnail derived in the worker.
     original_key = models.CharField(max_length=512)

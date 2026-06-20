@@ -1,8 +1,9 @@
-{# Clip grid — shared by search results and browse. Expects `items` (serialized assets). #}
+{# Clip grid — shared by search results, browse, and the template library. Expects `items`
+   (serialized assets). With `remix=True`, cards open the remix editor instead of the clip page. #}
 <ul class="clip-grid">
   {% for r in items %}
   <li class="clip-card">
-    <a href="{% url 'clips_asset' r.id %}" title="{{ r.description }}">
+    <a href="{% if remix %}{% url 'clips_remix' r.id %}{% else %}{% url 'clips_asset' r.id %}{% endif %}" title="{{ r.description }}">
       {% if r.poster_url %}
       <img class="clip-thumb" src="{{ r.poster_url }}" alt="{{ r.description|default:r.title|default:'clip' }}" loading="lazy">
       {% if r.text_layer_url %}<img class="clip-thumb-cap" src="{{ r.text_layer_url }}" alt="" loading="lazy">{% endif %}

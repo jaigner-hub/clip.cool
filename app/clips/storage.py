@@ -80,6 +80,16 @@ def upload_bytes(key, data, content_type):
     )
 
 
+def copy(src_key, dst_key):
+    """Server-side copy within the bucket (the bytes never stream through the app) — used to clone a
+    template's video into a new owned object for a remix (clips.services.create_remix)."""
+    _client().copy_object(
+        Bucket=settings.R2_BUCKET_NAME,
+        CopySource={"Bucket": settings.R2_BUCKET_NAME, "Key": src_key},
+        Key=dst_key,
+    )
+
+
 def delete(key):
     """Delete one object. Idempotent (S3 delete of a missing key succeeds)."""
     if not key:

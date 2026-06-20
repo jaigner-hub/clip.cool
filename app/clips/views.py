@@ -275,6 +275,50 @@ def browse_page(request):
     return render(request, "clips/browse.html", {"active_page": "clips_browse", "clips": clips})
 
 
+def template_gallery(request):
+    """Public template library: recorded clips anyone can browse and remix into a new GIF. No login
+    to look; remixing one (clips_remix) requires signing in."""
+    clips = [services.serialize(a) for a in services.list_template_clips()]
+    return render(request, "clips/templates.html", {"active_page": "clips_templates", "clips": clips})
+
+
+@login_required
+@ensure_csrf_cookie  # so clips/remix.js can read the csrftoken cookie for its POST
+def remix_page(request, asset_id):
+    """Remix editor: load a template clip, re-crop/re-trim it, then create a NEW clip the user owns.
+    Same source eligibility as create_remix (public + ready + video) — 404 otherwise."""
+    asset = services.get_public_asset(asset_id)
+    if asset is None or asset.media_type != Asset.MediaType.VIDEO:
+        raise Http404("Template not found.")
+    sources = services.video_sources(asset)
+    src_url = next((s["url"] for s in sources if s["kind"] == "h264"), "")
+    if not src_url:
+        raise Http404("Template not ready.")
+    return render(request, "clips/remix.html", {
+        "active_page": "clips_templates", "asset": asset, "a": services.serialize(asset),
+        "src_url": src_url,
+    })
+
+
+@login_required
+@require_POST
+def remix_create(request, asset_id):
+    """JSON: {crop?, trim_start?, trim_end?, title?, tags?} → clone the template into a new owned
+    Asset (async transcode). Returns the created asset so remix.js can open its detail page."""
+    data = _json(request)
+    asset = services.create_remix(
+        request.user, asset_id,
+        crop=data.get("crop"),
+        trim_start=data.get("trim_start"),
+        trim_end=data.get("trim_end"),
+        title=data.get("title", ""),
+        tags=data.get("tags") or [],
+    )
+    if asset is None:
+        raise Http404("Template not found.")
+    return JsonResponse(services.serialize(asset))
+
+
 def _json(request):
     try:
         return json.loads(request.body or b"{}")

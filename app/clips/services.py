@@ -107,8 +107,11 @@ def _clean_trim(trim_start, trim_end):
 
 
 def finalize_asset(user, *, key, title="", content_type="", tags=None, crop=None,
-                   trim_start=None, trim_end=None):
-    """Record the uploaded object as an Asset(pending) and enqueue async processing."""
+                   trim_start=None, trim_end=None, from_recorder=False):
+    """Record the uploaded object as an Asset(pending) and enqueue async processing.
+
+    `from_recorder` is set by the in-browser recorder (clips/record.js) so the clip joins the public
+    template library (list_template_clips) once it's public + ready — uploads leave it False."""
     if not key:
         raise ValueError("key is required")
     media_type = _media_type(content_type)
@@ -126,6 +129,8 @@ def finalize_asset(user, *, key, title="", content_type="", tags=None, crop=None
         crop=clean_crop,
         trim_start=t_start,
         trim_end=t_end,
+        # Only a recorded video is a template — an image "recording" isn't a thing, but guard anyway.
+        from_recorder=bool(from_recorder) and is_video,
         status=Asset.Status.PENDING,
     )
     # Deferred import: tasks.py pulls in procrastinate; keep it off the import path of callers.
@@ -137,6 +142,45 @@ def finalize_asset(user, *, key, title="", content_type="", tags=None, crop=None
         from .tasks import process_asset
         process_asset.defer(asset_id=str(asset.id))
     logger.info("clips: finalized %s asset %s (owner=%s)", media_type, asset.id, getattr(user, "pk", None))
+    return asset
+
+
+def create_remix(user, source_id, *, crop=None, trim_start=None, trim_end=None, title="", tags=None):
+    """Clone a public template clip into a NEW Asset owned by `user`, then re-transcode it with the
+    remixer's own crop/trim. The source template is never touched — a remix is a fresh, independently
+    owned clip the user can then caption like any other. Returns the new Asset, or None if the source
+    isn't a remixable template (must be public + ready + video).
+
+    The remix base is the source's H.264 rendition (what the user actually saw), not the raw pre-crop
+    recording — so re-crop/re-trim apply on top of the visible clip. Crop/trim are baked at transcode
+    by the same ffmpeg pass uploads use; the remix isn't itself flagged from_recorder, so it doesn't
+    re-enter the template library."""
+    source = get_public_asset(source_id)
+    if source is None or source.media_type != Asset.MediaType.VIDEO:
+        return None
+    h264 = source.renditions.filter(kind=Rendition.Kind.H264).first()
+    src_key = h264.r2_key if h264 else source.original_key
+    if not src_key:
+        return None
+    new_key = "originals/%s.mp4" % uuid.uuid4().hex
+    storage.copy(src_key, new_key)
+    t_start, t_end = _clean_trim(trim_start, trim_end)
+    asset = Asset.objects.create(
+        owner=user,
+        original_key=new_key,
+        mime="video/mp4",
+        media_type=Asset.MediaType.VIDEO,
+        title=(title or "").strip(),
+        tags=list(tags or []),
+        crop=_clean_crop(crop),
+        trim_start=t_start,
+        trim_end=t_end,
+        remixed_from=source,
+        status=Asset.Status.PENDING,
+    )
+    from .tasks import transcode_asset
+    transcode_asset.defer(asset_id=str(asset.id))
+    logger.info("clips: remixed %s → %s (owner=%s)", source.id, asset.id, getattr(user, "pk", None))
     return asset
 
 
@@ -506,6 +550,20 @@ def browse_assets(limit=30):
     this scale; revisit if the catalog grows large."""
     return list(
         Asset.objects.filter(is_public=True, status=Asset.Status.READY).order_by("?")[:limit]
+    )
+
+
+def list_template_clips(*, limit=60):
+    """The public template library: recorded video clips anyone can browse + remix. Membership =
+    recorder-origin + public + ready (the owner's private toggle is the opt-out). Newest first.
+    Reads Postgres directly (no Typesense) like browse_assets."""
+    return list(
+        Asset.objects.filter(
+            from_recorder=True,
+            is_public=True,
+            status=Asset.Status.READY,
+            media_type=Asset.MediaType.VIDEO,
+        ).order_by("-created_at")[:limit]
     )
 
 

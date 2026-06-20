@@ -1,0 +1,20 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
+{% block title %}Templates · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">Template library</h1>
+  <p class="kg-sub">Every recorded clip is a template anyone can remix. Pick one to re-trim, re-crop,
+    and caption it into your own GIF — the original stays untouched.</p>
+</div>
+{% if clips %}
+  {% include "clips/_grid.html" with items=clips remix=True %}
+{% else %}
+  <div class="kg-empty">
+    <p class="kg-empty-title">No templates yet</p>
+    <p class="kg-muted">Recorded clips show up here once they finish processing.
+      <a href="{% url 'clips_record' %}">Record one →</a></p>
+  </div>
+{% endif %}
+{% endblock %}

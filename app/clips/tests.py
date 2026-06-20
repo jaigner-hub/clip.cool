@@ -11,7 +11,7 @@ from django.urls import reverse
 
 from clips import services
 from clips.llm import LLMError
-from clips.models import Asset, Template
+from clips.models import Asset, Rendition, Template
 
 User = get_user_model()
 
@@ -599,3 +599,140 @@ class CaptionBurnTests(TestCase):
         up = mock_storage.upload_bytes.call_args
         self.assertTrue(up.args[0].endswith("captioned.mp4"))
         self.assertTrue(Rendition.objects.filter(asset=a, kind=Rendition.Kind.CAPTIONED).exists())
+
+
+class TemplateLibraryTests(TestCase):
+    """The public template library: recorded clips anyone can browse + remix."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("rec@example.com", "rec@example.com")
+
+    @patch("clips.tasks.transcode_asset")
+    def test_finalize_flags_recorded_video(self, mock_transcode):
+        # WHY: the recorder posts from_recorder=True so the clip joins the library once public+ready.
+        a = services.finalize_asset(
+            self.user, key="originals/r.webm", content_type="video/webm", from_recorder=True
+        )
+        self.assertTrue(a.from_recorder)
+
+    @patch("clips.tasks.process_asset")
+    def test_finalize_recorder_flag_ignored_for_image(self, mock_process):
+        # WHY: only a recorded *video* is a template — an image can't be "recorded".
+        a = services.finalize_asset(
+            self.user, key="originals/x.png", content_type="image/png", from_recorder=True
+        )
+        self.assertFalse(a.from_recorder)
+
+    @patch("clips.tasks.transcode_asset")
+    def test_upload_is_not_a_template(self, mock_transcode):
+        # WHY: a plain video upload (no flag) must never enter the template library.
+        a = services.finalize_asset(self.user, key="originals/x.webm", content_type="video/webm")
+        self.assertFalse(a.from_recorder)
+
+    def _rec(self, **kw):
+        defaults = dict(
+            owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
+            status=Asset.Status.READY, is_public=True, from_recorder=True,
+        )
+        defaults.update(kw)
+        return Asset.objects.create(**defaults)
+
+    def test_list_template_clips_membership(self):
+        keep = self._rec(title="in")
+        self._rec(is_public=False, title="private")        # opted out via private
+        self._rec(from_recorder=False, title="uploaded")   # not a recording
+        self._rec(status=Asset.Status.TRANSCODING, title="not-ready")
+        self._rec(media_type=Asset.MediaType.IMAGE, title="image")
+        ids = [a.id for a in services.list_template_clips()]
+        self.assertEqual(ids, [keep.id])   # only the public, ready, recorded video
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_gallery_public_no_login(self, mock_url):
+        # WHY: "anyone can access" — the library renders for a logged-out visitor.
+        self._rec(title="Funny reaction")
+        r = self.client.get(reverse("clips_templates"))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Funny reaction")
+
+    def test_remix_page_requires_login(self):
+        a = self._rec()
+        r = self.client.get(reverse("clips_remix", args=[a.id]))
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("/oidc/", r["Location"] + "")  # bounced to auth
+
+
+class RemixTests(TestCase):
+    """create_remix clones a template into a NEW owned clip; the source is never mutated."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user("src@example.com", "src@example.com")
+        self.remixer = User.objects.create_user("mix@example.com", "mix@example.com")
+        self.source = Asset.objects.create(
+            owner=self.owner, original_key="originals/src.webm", media_type=Asset.MediaType.VIDEO,
+            status=Asset.Status.READY, is_public=True, from_recorder=True, title="Template",
+        )
+        Rendition.objects.create(
+            asset=self.source, kind=Rendition.Kind.H264, r2_key="renditions/src/h264.mp4",
+            mime="video/mp4",
+        )
+
+    @patch("clips.tasks.transcode_asset")
+    @patch("clips.services.storage.copy")
+    def test_remix_clones_into_new_owned_asset(self, mock_copy, mock_transcode):
+        a = services.create_remix(
+            self.remixer, str(self.source.id),
+            crop={"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5}, trim_start=1.0, trim_end=3.0,
+            title="My remix", tags=["mine"],
+        )
+        self.assertIsNotNone(a)
+        # New, independent clip owned by the remixer, with lineage + the remixer's crop/trim.
+        self.assertEqual(a.owner, self.remixer)
+        self.assertEqual(a.remixed_from_id, self.source.id)
+        self.assertEqual(a.status, Asset.Status.PENDING)
+        self.assertEqual(a.media_type, Asset.MediaType.VIDEO)
+        self.assertFalse(a.from_recorder)              # a remix isn't itself a recording
+        self.assertEqual(a.crop, {"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5})
+        self.assertEqual((a.trim_start, a.trim_end), (1.0, 3.0))
+        # Copied FROM the H.264 rendition (what the user saw) INTO the new original key.
+        src_key, dst_key = mock_copy.call_args.args
+        self.assertEqual(src_key, "renditions/src/h264.mp4")
+        self.assertEqual(dst_key, a.original_key)
+        self.assertTrue(a.original_key.startswith("originals/"))
+        mock_transcode.defer.assert_called_once_with(asset_id=str(a.id))
+        # Source untouched.
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.owner, self.owner)
+        self.assertEqual(self.source.original_key, "originals/src.webm")
+
+    @patch("clips.tasks.transcode_asset")
+    @patch("clips.services.storage.copy")
+    def test_remix_falls_back_to_original_without_h264(self, mock_copy, mock_transcode):
+        # WHY: if the source has no H.264 rendition yet, clone the original rather than failing.
+        self.source.renditions.all().delete()
+        a = services.create_remix(self.remixer, str(self.source.id))
+        self.assertIsNotNone(a)
+        self.assertEqual(mock_copy.call_args.args[0], "originals/src.webm")
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_remix_page_renders_for_user(self, mock_url):
+        # WHY: smoke the editor template + that the H.264 source URL is wired in for remix.js.
+        self.client.force_login(self.remixer)
+        r = self.client.get(reverse("clips_remix", args=[self.source.id]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Create my GIF")
+        self.assertContains(r, "renditions/src/h264.mp4")   # data-src-url
+
+    @patch("clips.services.storage.copy")
+    def test_remix_rejects_private_image_or_missing(self, mock_copy):
+        # WHY: only a public, ready VIDEO is a remixable template.
+        import uuid as _uuid
+        self.source.is_public = False
+        self.source.save()
+        self.assertIsNone(services.create_remix(self.remixer, str(self.source.id)))
+        img = Asset.objects.create(
+            owner=self.owner, original_key="i.png", media_type=Asset.MediaType.IMAGE,
+            status=Asset.Status.READY, is_public=True,
+        )
+        self.assertIsNone(services.create_remix(self.remixer, str(img.id)))
+        self.assertIsNone(services.create_remix(self.remixer, str(_uuid.uuid4())))
+        mock_copy.assert_not_called()   # never touch storage for an ineligible source

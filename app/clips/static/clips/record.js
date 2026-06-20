@@ -1,14 +1,14 @@
 // clip.cool in-browser tab recorder (CSP-clean: external same-origin script, no inline JS).
 //   1) getDisplayMedia  -> user shares a browser tab; we show a live preview
-//   2) optional crop    -> drag a box over the preview; we record only that region
-//   3) MediaRecorder    -> Record/Stop bounds the clip (the recording window IS the trim)
+//   2) MediaRecorder    -> Record/Stop bounds the clip
+//   3) crop + trim      -> the shared ClipEdit widget (clipedit.js) over the recorded playback
 //   4) presign -> PUT to R2 -> finalize  (same path as a file upload; emits video/webm)
 //
 // Cropping: a tab capture is the WHOLE rendered tab. The "crop a captured tab to one element" API
-// (Region Capture / cropTo) is self-capture only, so it can't target another tab's video. Instead,
-// when a crop is set we draw the selected source rect onto a canvas each frame and record
-// canvas.captureStream() (audio re-attached from the display stream). No crop = record the raw
-// stream (best quality, the original path).
+// (Region Capture / cropTo) is self-capture only, so it can't target another tab's video. Instead we
+// record the raw full-tab stream and the crop/trim selection is sent to the server and baked in by
+// ffmpeg at transcode (a live canvas crop would freeze — requestAnimationFrame is throttled in a
+// backgrounded tab, which is exactly when capture must keep running).
 (function () {
   "use strict";
 
@@ -51,7 +51,6 @@
   // R2 was signed for a bare "video/webm" Content-Type, so the PUT + finalize must use exactly
   // that (MediaRecorder's blob.type carries a ;codecs=… suffix the presign didn't sign for).
   const UPLOAD_TYPE = "video/webm";
-  const MIN_CROP_PX = 16;   // a drag smaller than this (in display px) is treated as a stray click
 
   let stream = null;        // the shared-tab MediaStream
   let recorder = null;      // MediaRecorder
@@ -60,14 +59,16 @@
   let clipURL = null;       // object URL for playback (revoked on reset)
   let timerId = null;
   let startedAt = 0;
-  let cropDisp = null;      // selection in display (overlay) px: {x,y,w,h}; null = whole tab
-  let dragStart = null;     // pointer-down point while dragging
-  let clipDuration = 0;     // recorded length (s) — source of truth for the trim bar
-  let trimInS = 0;          // kept-range start (s)
-  let trimOutS = 0;         // kept-range end (s)
-  let trimDrag = null;      // "in" | "out" while dragging a handle
   let pipWindow = null;     // Document Picture-in-Picture window (floating controls)
   let pipMoved = [];        // [{node, parent, next}] — where moved nodes return to on close
+
+  // Shared crop + trim editor over the recorded playback. isLocked blocks re-cropping mid-record.
+  const edit = ClipEdit.init({
+    video: els.playback, cropCanvas: els.cropCanvas, cropReset: els.cropReset,
+    trim: els.trim, trimBar: els.trimBar, trimSel: els.trimSel, trimPlayhead: els.trimPlayhead,
+    trimIn: els.trimIn, trimOut: els.trimOut, trimLabel: els.trimLabel, trimReset: els.trimReset,
+    isLocked: function () { return !!(recorder && recorder.state !== "inactive"); },
+  });
 
   function cookie(name) {
     const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
@@ -89,7 +90,6 @@
   }
 
   function show(el, on) { el.hidden = !on; }
-  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
   // Feature gate: getDisplayMedia is Chromium/Firefox desktop; absent on iOS Safari.
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia || typeof MediaRecorder === "undefined") {
@@ -117,80 +117,11 @@
     if (clipURL) { URL.revokeObjectURL(clipURL); clipURL = null; }
     clip = null;
     chunks = [];
-    cropDisp = null;
+    edit.clearCrop();
     show(els.cropReset, false);
     show(els.editStage, false);
     show(els.trim, false);
     show(els.meta, false);
-  }
-
-  // --- trim scrubber (drag in/out over the recorded clip; applied at transcode) ---
-
-  function layoutTrim() {
-    if (clipDuration <= 0) return;
-    const inPct = (trimInS / clipDuration) * 100;
-    const outPct = (trimOutS / clipDuration) * 100;
-    els.trimSel.style.left = inPct + "%";
-    els.trimSel.style.width = Math.max(0, outPct - inPct) + "%";
-    els.trimIn.style.left = inPct + "%";
-    els.trimOut.style.left = outPct + "%";
-    els.trimLabel.textContent =
-      "in " + trimInS.toFixed(1) + "s · out " + trimOutS.toFixed(1) + "s · "
-      + (trimOutS - trimInS).toFixed(1) + "s clip";
-  }
-
-  function setPlayhead(t) {
-    if (clipDuration > 0) els.trimPlayhead.style.left = ((t / clipDuration) * 100) + "%";
-  }
-
-  function initTrim() {
-    trimInS = 0;
-    trimOutS = clipDuration;
-    layoutTrim();
-    setPlayhead(0);
-    show(els.trim, true);
-  }
-
-  function barSeconds(clientX) {
-    const r = els.trimBar.getBoundingClientRect();
-    if (r.width <= 0) return 0;
-    return clamp((clientX - r.left) / r.width, 0, 1) * clipDuration;
-  }
-
-  function onTrimDown(which) {
-    return function (ev) {
-      ev.preventDefault();
-      trimDrag = which;
-      if (els.trimBar.setPointerCapture && ev.pointerId != null) {
-        try { els.trimBar.setPointerCapture(ev.pointerId); } catch (e) {}
-      }
-      onTrimMove(ev);
-    };
-  }
-
-  function onTrimMove(ev) {
-    if (!trimDrag) return;
-    const t = barSeconds(ev.clientX);
-    if (trimDrag === "in") trimInS = clamp(t, 0, trimOutS - 0.1);
-    else trimOutS = clamp(t, trimInS + 0.1, clipDuration);
-    const edge = trimDrag === "in" ? trimInS : trimOutS;
-    try { els.playback.currentTime = edge; } catch (e) {}
-    setPlayhead(edge);
-    layoutTrim();
-  }
-
-  function endTrimDrag() { trimDrag = null; }
-
-  function resetTrim() { trimInS = 0; trimOutS = clipDuration; layoutTrim(); setPlayhead(0); }
-
-  // Fraction (0..1) of the recorded range to send to the server; null when the whole clip is kept.
-  function trimPayload() {
-    const body = {};
-    if (clipDuration > 0) {
-      if (trimInS > 0.05) body.trim_start = trimInS;
-      if (trimOutS < clipDuration - 0.05) body.trim_end = trimOutS;
-    }
-    return body;
   }
 
   function fmt(s) {
@@ -203,97 +134,6 @@
     const elapsed = Math.floor((Date.now() - startedAt) / 1000);
     els.timer.textContent = "Recording… " + fmt(elapsed) + " / " + fmt(maxSeconds);
     if (elapsed >= maxSeconds) stopRecording();
-  }
-
-  // --- crop selection (overlay drawn in display px; converted to source px at record time) ---
-
-  function syncOverlaySize() {
-    // 1 overlay px == 1 displayed CSS px, so pointer offsets map straight onto the canvas. The crop
-    // overlay sits over the RECORDED clip (playback) now, not the live preview — you crop after the
-    // fact, right before upload.
-    const w = els.playback.clientWidth, h = els.playback.clientHeight;
-    if (w && h && (els.cropCanvas.width !== w || els.cropCanvas.height !== h)) {
-      els.cropCanvas.width = w;
-      els.cropCanvas.height = h;
-    }
-  }
-
-  function drawBand() {
-    syncOverlaySize();
-    const c = els.cropCanvas, ctx = c.getContext("2d");
-    if (!c.width || !c.height) return;
-    ctx.clearRect(0, 0, c.width, c.height);
-    if (!cropDisp) {
-      // Idle affordance: a dashed frame + label so the crop tool is actually discoverable.
-      ctx.setLineDash([8, 6]);
-      ctx.strokeStyle = "rgba(97,217,239,0.9)";     // --kg-cyan
-      ctx.lineWidth = 2;
-      ctx.strokeRect(5, 5, c.width - 10, c.height - 10);
-      ctx.setLineDash([]);
-      const label = "✂ Drag across the clip to crop — or upload the whole tab";
-      ctx.font = "600 13px system-ui, -apple-system, sans-serif";
-      ctx.textBaseline = "top";
-      const tw = Math.min(ctx.measureText(label).width, c.width - 20);
-      const bx = (c.width - tw) / 2 - 10;
-      ctx.fillStyle = "rgba(11,18,32,0.7)";
-      ctx.fillRect(bx, 10, tw + 20, 26);
-      ctx.fillStyle = "#fff";
-      ctx.fillText(label, (c.width - tw) / 2, 16, c.width - 20);
-      return;
-    }
-    ctx.fillStyle = "rgba(11,18,32,0.55)";          // dim everything…
-    ctx.fillRect(0, 0, c.width, c.height);
-    ctx.clearRect(cropDisp.x, cropDisp.y, cropDisp.w, cropDisp.h);  // …except the selection
-    ctx.strokeStyle = "#61D9EF";                    // --kg-cyan
-    ctx.lineWidth = 2;
-    ctx.strokeRect(cropDisp.x, cropDisp.y, cropDisp.w, cropDisp.h);
-  }
-
-  function clearCrop() {
-    cropDisp = null;
-    drawBand();
-    show(els.cropReset, false);
-  }
-
-  function onPointerDown(e) {
-    if (recorder && recorder.state !== "inactive") return;  // no re-cropping mid-record
-    syncOverlaySize();
-    els.cropCanvas.setPointerCapture(e.pointerId);
-    const r = els.cropCanvas.getBoundingClientRect();
-    dragStart = { x: e.clientX - r.left, y: e.clientY - r.top };
-  }
-
-  function onPointerMove(e) {
-    if (!dragStart) return;
-    const r = els.cropCanvas.getBoundingClientRect();
-    const x = clamp(e.clientX - r.left, 0, els.cropCanvas.width);
-    const y = clamp(e.clientY - r.top, 0, els.cropCanvas.height);
-    cropDisp = {
-      x: Math.min(dragStart.x, x),
-      y: Math.min(dragStart.y, y),
-      w: Math.abs(x - dragStart.x),
-      h: Math.abs(y - dragStart.y),
-    };
-    drawBand();
-  }
-
-  function onPointerUp() {
-    if (!dragStart) return;
-    dragStart = null;
-    if (!cropDisp || cropDisp.w < MIN_CROP_PX || cropDisp.h < MIN_CROP_PX) {
-      clearCrop();  // treat a tiny drag as "no crop"
-      return;
-    }
-    drawBand();
-    show(els.cropReset, true);
-  }
-
-  // The selection as fractions (0..1) of the source frame — resolution-independent, so the server
-  // can map it onto the recorded full-frame webm whatever its dimensions. null = no crop.
-  function cropFractions() {
-    const c = els.cropCanvas;
-    if (!cropDisp || !c.width || !c.height) return null;
-    return { x: cropDisp.x / c.width, y: cropDisp.y / c.height, w: cropDisp.w / c.width, h: cropDisp.h / c.height };
   }
 
   // --- floating controls via Document Picture-in-Picture -------------------------------------
@@ -341,7 +181,7 @@
     });
     // Repaint the crop overlay for the new (smaller) layout. Use the PiP window's rAF — the main
     // window's is throttled the moment its tab is backgrounded, which is exactly when this matters.
-    pipWindow.requestAnimationFrame(drawBand);
+    pipWindow.requestAnimationFrame(edit.redraw);
     // Native close button (or close()) → put everything back on the page.
     pipWindow.addEventListener("pagehide", restoreFromPip, { once: true });
     els.pip.textContent = "Controls popped out ↗";
@@ -355,7 +195,7 @@
     });
     pipMoved = [];
     pipWindow = null;
-    requestAnimationFrame(drawBand);   // back on the page; re-fit the overlay
+    requestAnimationFrame(edit.redraw);   // back on the page; re-fit the overlay
     els.pip.textContent = "⧉ Pop out controls";
     els.pip.disabled = !stream;
   }
@@ -481,12 +321,9 @@
     clipURL = URL.createObjectURL(clip);
     els.playback.src = clipURL;
     fixDurationThen(function (d) {
-      clipDuration = (isFinite(d) && d > 0) ? d : recordedSeconds;
-      initTrim();
-      // Crop happens HERE now — on the recorded clip, right before upload. Arm the overlay over the
-      // (now laid-out, visible) playback and loop it muted so the box is framed against real footage.
-      clearCrop();
-      requestAnimationFrame(drawBand);
+      // Arm the shared crop + trim widget over the (now laid-out, visible) playback, and loop it
+      // muted so the box is framed against real footage.
+      edit.arm((isFinite(d) && d > 0) ? d : recordedSeconds);
       els.playback.play().catch(function () {});
     });
     show(els.stage, false);
@@ -541,10 +378,11 @@
 
       setStatus("Finalizing…");
       const tags = (els.tags.value || "").split(",").map(function (t) { return t.trim(); }).filter(Boolean);
-      const body = { key: key, title: els.title.value || "", content_type: UPLOAD_TYPE, tags: tags };
-      const cf = cropFractions();
+      // from_recorder: this clip joins the public template library once it's public + ready.
+      const body = { key: key, title: els.title.value || "", content_type: UPLOAD_TYPE, tags: tags, from_recorder: true };
+      const cf = edit.cropFractions();
       if (cf) body.crop = cf;
-      Object.assign(body, trimPayload());   // trim_start / trim_end (seconds), omitted if whole clip
+      Object.assign(body, edit.trimPayload());   // trim_start / trim_end (seconds), omitted if whole clip
       res = await postJSON(finalizeURL, body);
       if (!res.ok) { uploadFailed("Finalize failed (" + res.status + "): " + (await res.text())); return; }
       const asset = await res.json();
@@ -561,35 +399,8 @@
   els.pip.addEventListener("click", openPip);
   els.start.addEventListener("click", startRecording);
   els.stop.addEventListener("click", stopRecording);
-  els.cropReset.addEventListener("click", clearCrop);
   els.reset.addEventListener("click", function () { resetClip(); show(els.stage, !!stream); });
-  els.cropCanvas.addEventListener("pointerdown", onPointerDown);
-  els.cropCanvas.addEventListener("pointermove", onPointerMove);
-  els.cropCanvas.addEventListener("pointerup", onPointerUp);
   els.upload.addEventListener("click", upload);
 
-  // Trim: drag the handles; click the bar to seek; loop playback within the kept range.
-  els.trimIn.addEventListener("pointerdown", onTrimDown("in"));
-  els.trimOut.addEventListener("pointerdown", onTrimDown("out"));
-  els.trimBar.addEventListener("pointerdown", function (ev) {
-    if (ev.target === els.trimIn || ev.target === els.trimOut) return;  // a handle grab
-    const t = barSeconds(ev.clientX);
-    try { els.playback.currentTime = t; } catch (e) {}
-    setPlayhead(t);
-  });
-  els.trimBar.addEventListener("pointermove", onTrimMove);
-  els.trimBar.addEventListener("pointerup", endTrimDrag);
-  els.trimBar.addEventListener("pointercancel", endTrimDrag);
-  window.addEventListener("pointerup", endTrimDrag);
-  els.trimReset.addEventListener("click", resetTrim);
-  els.playback.addEventListener("timeupdate", function () {
-    const t = els.playback.currentTime;
-    if (clipDuration > 0 && (t >= trimOutS || t < trimInS - 0.05)) {
-      try { els.playback.currentTime = trimInS; } catch (e) {}
-    }
-    setPlayhead(els.playback.currentTime);
-  });
-
-  window.addEventListener("resize", function () { if (stream) clearCrop(); layoutTrim(); });
   window.addEventListener("beforeunload", function () { closePip(); stopTracks(); });
 })();

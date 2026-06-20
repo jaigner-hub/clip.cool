@@ -89,6 +89,10 @@
         <button type="submit" class="kg-btn kg-btn-sm kg-btn-danger">Delete</button>
       </form>
       {% endif %}
+      {# Remix: anyone (logged in) can turn a public, ready video into their own GIF. #}
+      {% if a.media_type == 'video' and a.is_public and asset.status == 'ready' %}
+      <a class="kg-btn kg-btn-sm kg-btn-primary" href="{% url 'clips_remix' asset.id %}">🎬 Make a GIF from this</a>
+      {% endif %}
       {# Original source file — visible to anyone who can view the clip. #}
       <a class="kg-btn kg-btn-sm" href="{% url 'clip_download' asset.id %}">Download ↓</a>
       <a class="kg-acct-link" href="{{ a.url }}" target="_blank" rel="noopener">Original file ↗</a>
