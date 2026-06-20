@@ -492,8 +492,7 @@
     show(els.stage, false);
     show(els.editStage, true);
     show(els.stop, false);
-    show(els.start, true);
-    els.start.textContent = "● Record again";
+    show(els.start, false);   // no "Record again" on the edit screen — "Share a different tab" re-records
     show(els.reset, false);
     show(els.meta, true);
     els.timer.textContent = "Captured " + Math.round(clip.size / 1024)
