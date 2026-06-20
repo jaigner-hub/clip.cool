@@ -6,6 +6,9 @@
   {# stop HTMX injecting an inline <style> (would violate style-src 'self') #}
   <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
   <title>{% block title %}keygrip{% endblock %}</title>
+  <link rel="icon" href="{% static 'web/favicon.ico' %}" sizes="any">
+  <link rel="icon" type="image/svg+xml" href="{% static 'web/favicon.svg' %}">
+  <link rel="apple-touch-icon" href="{% static 'web/apple-touch-icon.png' %}">
   <link rel="stylesheet" href="{% static 'web/keygrip.css' %}">
   {% comment %}
   Frontend baseline: HTMX + Alpine (CSP build). Any inline script tag must carry

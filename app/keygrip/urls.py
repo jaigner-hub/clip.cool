@@ -1,6 +1,8 @@
 from django.contrib import admin
+from django.templatetags.static import static
 from django.urls import include, path
 from django.views.generic import TemplateView
+from django.views.generic.base import RedirectView
 
 from keygrip.api import api as ninja_api
 from web import views as web_views
@@ -11,6 +13,8 @@ admin.site.site_title = "Keygrip admin"
 admin.site.index_title = "Administration"
 
 urlpatterns = [
+    # Bare /favicon.ico (browsers + link unfurlers request the root path) → the collected static file.
+    path("favicon.ico", RedirectView.as_view(url=static("web/favicon.ico"), permanent=True)),
     # Shadows admin's own login URL (first match wins): the password form only exists on
     # break-glass hosts; everywhere else staff go through OIDC (ADR 0002).
     path("admin/login/", web_views.admin_login_gate),
