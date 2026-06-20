@@ -65,11 +65,16 @@ The tab-dance — switch to the source tab to press play, switch back to hit Rec
 main ergonomic wart. There's **no way to inject a click into a captured tab** (browser security:
 synthesized clicks into an arbitrary captured surface would be a clickjacking primitive — the only
 sanctioned back-channel, Captured Surface Control, is wheel-scroll + zoom only, never clicks/keys).
-So instead of pulling the source's play button into clip.cool, we **push our controls out**:
-**“⧉ Pop out controls”** opens a **Document Picture-in-Picture** window
-(`documentPictureInPicture.requestWindow()`, Chromium 116+) and **moves** the live preview +
-Record/Stop into it. It floats always-on-top, so the user stays on the source tab, presses play
-natively, and hits Record in the float — no switch back.
+So instead of pulling the source's play button into clip.cool, we **push our controls out**: a
+**Document Picture-in-Picture** window (`documentPictureInPicture.requestWindow()`, Chromium 116+)
+that **moves** the live preview + Record/Stop (stacked, video on top) into an always-on-top float, so
+the user stays on the source tab, presses play natively, and hits Record in the float — no switch
+back.
+
+- **Automatic on share:** we call it right after `getDisplayMedia` resolves so the float just appears.
+  Document PiP needs **transient activation**, which the share picker doesn't reliably carry — when
+  it's missing the `requestWindow()` rejects and we **fall back silently** to a manual
+  **“⧉ Pop out controls”** button (no error nag). So worst case the user clicks one button.
 
 - **Move, don't clone:** adopting a node into the PiP document **preserves its event listeners**, so
   the same Record/Stop buttons keep working — no re-wiring. On close we move them back to their

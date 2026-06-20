@@ -313,12 +313,15 @@
   // Move the live preview + record controls into the floating window. Moving (not cloning) keeps
   // every existing listener attached — adopting a node across documents preserves its handlers — so
   // the same Record/Stop buttons just work from the PiP window.
-  async function openPip() {
+  async function openPip(auto) {
     if (!pipSupported() || pipWindow || !stream) return;
     try {
-      pipWindow = await documentPictureInPicture.requestWindow({ width: 420, height: 400 });
+      pipWindow = await documentPictureInPicture.requestWindow({ width: 420, height: 440 });
     } catch (err) {
-      setStatus("Couldn't pop out the controls: " + err, "error");
+      // Auto-open needs transient activation, which the share picker doesn't reliably carry; when it's
+      // missing, fall back silently to the manual "Pop out controls" button rather than nagging.
+      pipWindow = null;
+      if (!auto) setStatus("Couldn't pop out the controls: " + err, "error");
       return;
     }
     copyStyles(pipWindow.document);
@@ -326,6 +329,9 @@
     pdoc.body.style.margin = "0";          // CSSOM .style isn't subject to CSP (unlike style="" attrs)
     pdoc.body.style.padding = "12px";
     pdoc.body.style.background = "#0b1220"; // --kg-bg, so it reads as part of clip.cool
+    pdoc.body.style.display = "flex";       // stack vertically: video on top, controls below it
+    pdoc.body.style.flexDirection = "column";
+    pdoc.body.style.gap = "10px";
     [els.stage, els.controls].forEach(function (node) {
       pipMoved.push({ node: node, parent: node.parentNode, next: node.nextSibling });
       pdoc.body.appendChild(node);
@@ -396,7 +402,11 @@
     els.preview.addEventListener("loadedmetadata", drawBand, { once: true });
     requestAnimationFrame(drawBand);   // paint the idle hint once the stage has laid out
     els.share.textContent = "Share a different tab";
-    if (pipSupported()) { show(els.pip, true); els.pip.disabled = false; }
+    if (pipSupported()) {
+      show(els.pip, true);
+      els.pip.disabled = false;
+      openPip(true);   // try to float automatically; silently leaves the button if activation is gone
+    }
   }
 
   function teardownPreview() {
