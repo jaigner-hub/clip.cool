@@ -461,6 +461,13 @@
 
   function stopRecording() {
     if (timerId) { clearInterval(timerId); timerId = null; }
+    // When the controls are floating, a Stop *click* is a user gesture inside the PiP window — spend
+    // it to pull focus back to the clip.cool tab (Chrome 123+) so the user lands on the edit UI
+    // instead of stranded on the shared tab. Must be synchronous in the gesture (before the async
+    // recorder.stop() → onRecordingStopped, which then closes the float). No-op without a gesture
+    // (timer auto-stop / track ended) or on older browsers — the float's native "back to tab" covers
+    // those.
+    if (pipWindow) { try { window.focus(); } catch (e) {} }
     if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 

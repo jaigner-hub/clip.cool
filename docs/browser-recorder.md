@@ -105,6 +105,12 @@ back.
   UI lives on the page), on **Share a different tab**, and on teardown/unload. Feature-detected — the
   button is hidden where Document PiP is unsupported (Firefox/Safari), which fall back to the
   page-only flow.
+- **Focus back on Stop:** because Stop is clicked *inside* the float, that's a user gesture in the PiP
+  window — we spend it on `window.focus()` (Chrome 123+) to pull focus back to the clip.cool tab so
+  the user lands on the edit UI instead of stranded on the shared tab. Must be synchronous in the
+  click (before the async `recorder.stop()` → close), so it lives in `stopRecording()`, not the stop
+  handler. No-op without a gesture (timer auto-stop) or on older browsers — the float's native "back
+  to tab" button covers those.
 - **Repaint:** the crop overlay is repainted with the **PiP window's** `requestAnimationFrame`, not
   the main window's — the latter is throttled the instant clip.cool is backgrounded, which is exactly
   when the float is in use.
