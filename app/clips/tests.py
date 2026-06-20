@@ -85,6 +85,26 @@ class SearchScopingTests(TestCase):
         self.assertIsNone(mock_search.query.call_args.kwargs["owner_id"])
 
 
+class ListAssetsScopingTests(TestCase):
+    def setUp(self):
+        self.me = User.objects.create_user("me@example.com", "me@example.com")
+        self.other = User.objects.create_user("other@example.com", "other@example.com")
+        self.mine = Asset.objects.create(owner=self.me, original_key="mine", status=Asset.Status.READY)
+        self.theirs = Asset.objects.create(owner=self.other, original_key="theirs", status=Asset.Status.READY)
+
+    def test_owner_scoped(self):
+        # WHY: "My clips" means MINE — only the caller's own assets, never another user's.
+        self.assertEqual([a.id for a in services.list_assets(self.me)], [self.mine.id])
+
+    def test_superuser_still_only_sees_own(self):
+        # WHY: unlike search, "My clips" / the API's "List your assets" stay owner-scoped even for a
+        # superuser — otherwise an admin opening their own library leaks everyone's clips. A superuser
+        # still reaches any single clip via get_asset_for and sees all via Browse / the Django admin.
+        self.me.is_superuser = True
+        self.me.save()
+        self.assertEqual([a.id for a in services.list_assets(self.me)], [self.mine.id])
+
+
 class AutodescribeTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("u@example.com", "u@example.com")

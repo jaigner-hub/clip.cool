@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 @login_required
 def library(request):
-    """All of the user's clips, newest first (superuser sees everyone's)."""
+    """The signed-in user's own clips, newest first (owner-scoped even for superusers)."""
     assets = [services.serialize(a) for a in services.list_assets(request.user, limit=200)]
     return render(request, "clips/library.html", {"active_page": "clips_library", "assets": assets})
 

@@ -510,8 +510,10 @@ def browse_assets(limit=30):
 
 
 def list_assets(user, *, limit=40):
-    qs = Asset.objects.all() if getattr(user, "is_superuser", False) else Asset.objects.filter(owner=user)
-    return list(qs[:limit])
+    """The user's OWN clips, newest first — this backs "My clips" / the API's "List your assets", so
+    it is owner-scoped even for superusers (a superuser still reaches any individual clip via
+    get_asset_for, and sees everything via Browse / the Django admin)."""
+    return list(Asset.objects.filter(owner=user)[:limit])
 
 
 def get_public_asset(asset_id):
