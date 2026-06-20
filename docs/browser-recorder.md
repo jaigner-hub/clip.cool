@@ -60,6 +60,31 @@ Sharing a tab normally yanks focus to the captured tab. We use the **Conditional
 (`CaptureController.setFocusBehavior("no-focus-change")`, feature-detected) so focus stays on
 clip.cool after you pick the tab.
 
+### Pop the controls out (Document Picture-in-Picture)
+The tab-dance — switch to the source tab to press play, switch back to hit Record — is the recorder's
+main ergonomic wart. There's **no way to inject a click into a captured tab** (browser security:
+synthesized clicks into an arbitrary captured surface would be a clickjacking primitive — the only
+sanctioned back-channel, Captured Surface Control, is wheel-scroll + zoom only, never clicks/keys).
+So instead of pulling the source's play button into clip.cool, we **push our controls out**:
+**“⧉ Pop out controls”** opens a **Document Picture-in-Picture** window
+(`documentPictureInPicture.requestWindow()`, Chromium 116+) and **moves** the live preview +
+Record/Stop into it. It floats always-on-top, so the user stays on the source tab, presses play
+natively, and hits Record in the float — no switch back.
+
+- **Move, don't clone:** adopting a node into the PiP document **preserves its event listeners**, so
+  the same Record/Stop buttons keep working — no re-wiring. On close we move them back to their
+  original spot (tracked via parent + nextSibling).
+- **Styles:** the PiP window starts blank; we clone the same-origin `<link rel="stylesheet">`s into it
+  (CSP-clean — no inline CSS). Body padding/background set via the CSSOM `.style` API, which isn't
+  subject to CSP (unlike `style=""` attributes).
+- **Lifecycle:** the float auto-restores on its native close button, on **record stop** (trim/upload
+  UI lives on the page), on **Share a different tab**, and on teardown/unload. Feature-detected — the
+  button is hidden where Document PiP is unsupported (Firefox/Safari), which fall back to the
+  page-only flow.
+- **Repaint:** the crop overlay is repainted with the **PiP window's** `requestAnimationFrame`, not
+  the main window's — the latter is throttled the instant clip.cool is backgrounded, which is exactly
+  when the float is in use.
+
 ### Cap the capture resolution
 `getDisplayMedia` is constrained to **≤1920×1080** so a 2K/4K tab doesn't bloat the upload or server
 decode. Pairs with the server-side rendition downscale (≤1280px — see architecture). Doesn't affect

@@ -17,6 +17,7 @@
 
   const els = {
     share: document.getElementById("record-share"),
+    pip: document.getElementById("record-pip"),
     hint: document.getElementById("record-hint"),
     stage: document.getElementById("record-stage"),
     preview: document.getElementById("record-preview"),
@@ -64,6 +65,8 @@
   let trimInS = 0;          // kept-range start (s)
   let trimOutS = 0;         // kept-range end (s)
   let trimDrag = null;      // "in" | "out" while dragging a handle
+  let pipWindow = null;     // Document Picture-in-Picture window (floating controls)
+  let pipMoved = [];        // [{node, parent, next}] — where moved nodes return to on close
 
   function cookie(name) {
     const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
@@ -290,7 +293,70 @@
     return { x: cropDisp.x / c.width, y: cropDisp.y / c.height, w: cropDisp.w / c.width, h: cropDisp.h / c.height };
   }
 
+  // --- floating controls via Document Picture-in-Picture -------------------------------------
+  // The pain we're solving: to press play on the captured tab you must switch to it, which buries
+  // clip.cool's Record button. There's no way to inject a click into a captured tab (browser
+  // security), so instead we PUSH our controls out: Document PiP opens an always-on-top window we
+  // fill with the live preview + Record/Stop. The user stays on YouTube, presses play natively, and
+  // hits Record in the floating window — no tab dance. Chromium 116+; everyone else just doesn't see
+  // the button and uses the page as before.
+  function pipSupported() { return "documentPictureInPicture" in window; }
+
+  // PiP windows start with no stylesheets; clone our same-origin <link>s so .kg-btn etc. survive
+  // (CSP-clean — we copy existing external links, never inject inline CSS).
+  function copyStyles(pipDoc) {
+    document.querySelectorAll('link[rel="stylesheet"]').forEach(function (link) {
+      pipDoc.head.appendChild(link.cloneNode(true));
+    });
+  }
+
+  // Move the live preview + record controls into the floating window. Moving (not cloning) keeps
+  // every existing listener attached — adopting a node across documents preserves its handlers — so
+  // the same Record/Stop buttons just work from the PiP window.
+  async function openPip() {
+    if (!pipSupported() || pipWindow || !stream) return;
+    try {
+      pipWindow = await documentPictureInPicture.requestWindow({ width: 420, height: 400 });
+    } catch (err) {
+      setStatus("Couldn't pop out the controls: " + err, "error");
+      return;
+    }
+    copyStyles(pipWindow.document);
+    const pdoc = pipWindow.document;
+    pdoc.body.style.margin = "0";          // CSSOM .style isn't subject to CSP (unlike style="" attrs)
+    pdoc.body.style.padding = "12px";
+    pdoc.body.style.background = "#0b1220"; // --kg-bg, so it reads as part of clip.cool
+    [els.stage, els.controls].forEach(function (node) {
+      pipMoved.push({ node: node, parent: node.parentNode, next: node.nextSibling });
+      pdoc.body.appendChild(node);
+    });
+    // Repaint the crop overlay for the new (smaller) layout. Use the PiP window's rAF — the main
+    // window's is throttled the moment its tab is backgrounded, which is exactly when this matters.
+    pipWindow.requestAnimationFrame(drawBand);
+    // Native close button (or close()) → put everything back on the page.
+    pipWindow.addEventListener("pagehide", restoreFromPip, { once: true });
+    els.pip.textContent = "Controls popped out ↗";
+    els.pip.disabled = true;
+  }
+
+  function restoreFromPip() {
+    pipMoved.forEach(function (m) {
+      if (m.next && m.next.parentNode === m.parent) m.parent.insertBefore(m.node, m.next);
+      else m.parent.appendChild(m.node);
+    });
+    pipMoved = [];
+    pipWindow = null;
+    requestAnimationFrame(drawBand);   // back on the page; re-fit the overlay
+    els.pip.textContent = "⧉ Pop out controls";
+    els.pip.disabled = !stream;
+  }
+
+  function closePip() {
+    if (pipWindow) { try { pipWindow.close(); } catch (e) {} }  // fires pagehide → restoreFromPip
+  }
+
   async function share() {
+    closePip();
     resetClip();
     setStatus("");
     // Conditional Focus (Chromium): keep focus on clip.cool instead of jumping to the captured tab.
@@ -330,13 +396,16 @@
     els.preview.addEventListener("loadedmetadata", drawBand, { once: true });
     requestAnimationFrame(drawBand);   // paint the idle hint once the stage has laid out
     els.share.textContent = "Share a different tab";
+    if (pipSupported()) { show(els.pip, true); els.pip.disabled = false; }
   }
 
   function teardownPreview() {
+    closePip();
     stopTracks();
     els.preview.srcObject = null;
     show(els.stage, false);
     show(els.controls, false);
+    show(els.pip, false);
     els.timer.textContent = "";
     els.share.textContent = "Share a browser tab";
   }
@@ -379,6 +448,7 @@
   }
 
   function onRecordingStopped() {
+    closePip();   // trim + upload UI lives on the page; bring the controls back from the float
     clip = new Blob(chunks, { type: UPLOAD_TYPE });
     chunks = [];
     if (!clip.size) { setStatus("Nothing was recorded — try again.", "error"); return; }
@@ -460,6 +530,7 @@
   }
 
   els.share.addEventListener("click", share);
+  els.pip.addEventListener("click", openPip);
   els.start.addEventListener("click", startRecording);
   els.stop.addEventListener("click", stopRecording);
   els.cropReset.addEventListener("click", clearCrop);
@@ -492,5 +563,5 @@
   });
 
   window.addEventListener("resize", function () { if (stream) clearCrop(); layoutTrim(); });
-  window.addEventListener("beforeunload", stopTracks);
+  window.addEventListener("beforeunload", function () { closePip(); stopTracks(); });
 })();
