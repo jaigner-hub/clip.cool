@@ -1,5 +1,5 @@
-{# Clip grid — shared by search results, browse, and the template library. Expects `items`
-   (serialized assets). With `remix=True`, cards open the remix editor instead of the clip page. #}
+{% comment %}Clip grid — shared by search results, browse, and the template library. Expects `items`
+(serialized assets). With `remix=True`, cards open the remix editor instead of the clip page.{% endcomment %}
 <ul class="clip-grid">
   {% for r in items %}
   <li class="clip-card">

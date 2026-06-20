@@ -2,7 +2,7 @@
    come from the keygrip.css tokens (--kg-surface / --kg-surface-2 / --kg-line / --kg-ink / --kg-grey
    / --kg-cyan). #0b1220 / #222c30 are deliberate near-black media "letterbox" backgrounds. */
 
-/* Impact-like display font for the meme builder, self-hosted (CSP font-src 'self'). */
+/* Impact-like display font for the caption-editor canvas (builder.js), self-hosted (CSP font-src 'self'). */
 @font-face {
   font-family: "Anton";
   src: url("fonts/anton.woff2") format("woff2");
@@ -11,7 +11,8 @@
   font-display: swap;
 }
 
-/* Meme builder. */
+/* Caption editor canvas + controls (builder.js; .builder-stage is now caption-only since the
+   standalone meme builder page was removed). */
 .builder-stage {
   display: flex;
   align-items: center;

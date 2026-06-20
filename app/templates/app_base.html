@@ -10,9 +10,7 @@
       <a href="{% url 'clips_templates' %}"{% if active_page == 'clips_templates' %} class="is-active"{% endif %}>Templates</a>
       {% if user.is_authenticated %}
       <a href="{% url 'clips_library' %}"{% if active_page == 'clips_library' %} class="is-active"{% endif %}>My clips</a>
-      <a href="{% url 'clips_create' %}"{% if active_page == 'clips_create' %} class="is-active"{% endif %}>Create</a>
       <a href="{% url 'clips_record' %}"{% if active_page == 'clips_record' %} class="is-active"{% endif %}>Record</a>
-      <a href="{% url 'clips_upload' %}"{% if active_page == 'clips_upload' %} class="is-active"{% endif %}>Upload</a>
       {% endif %}
     </nav>
     <div class="kg-account">

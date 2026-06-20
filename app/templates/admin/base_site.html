@@ -15,7 +15,7 @@
 {# Same links as the app shell (templates/app_base.html) so staff navigate consistently. #}
 <nav class="kg-admin-nav">
   <a href="{% url 'clips_search' %}">Search</a>
-  <a href="{% url 'clips_upload' %}">Upload</a>
+  <a href="{% url 'clips_record' %}">Record</a>
 </nav>
 {% endif %}
 {% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}

@@ -177,43 +177,6 @@ def caption_save(request, asset_id):
 
 
 @login_required
-def create_gallery(request):
-    """Pick a template to caption (the in-app meme builder)."""
-    return render(request, "clips/create.html", {
-        "active_page": "clips_create", "templates": services.list_templates(),
-    })
-
-
-@login_required
-def builder(request, template_id):
-    template = services.get_template(template_id)
-    if template is None:
-        raise Http404("Template not found.")
-    return render(request, "clips/builder.html", {"active_page": "clips_create", "template": template})
-
-
-@login_required
-def template_image(request, template_id):
-    """Same-origin proxy of a template's image so the builder canvas can export without tainting."""
-    template = services.get_template(template_id)
-    if template is None:
-        raise Http404("Template not found.")
-    try:
-        data = services.template_image_bytes(template)
-    except Exception:
-        raise Http404("Template image unavailable.")
-    resp = HttpResponse(data, content_type=template.mime or "image/png")
-    resp["Cache-Control"] = "public, max-age=86400"
-    return resp
-
-
-@login_required
-@ensure_csrf_cookie  # so clips/upload.js can read the csrftoken cookie for its POSTs
-def upload_page(request):
-    return render(request, "clips/upload.html", {"active_page": "clips_upload"})
-
-
-@login_required
 @ensure_csrf_cookie  # so clips/record.js can read the csrftoken cookie for its POSTs
 def record_page(request):
     """In-browser tab recorder: share a tab (getDisplayMedia) → record the moment → upload the

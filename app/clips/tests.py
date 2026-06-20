@@ -224,27 +224,10 @@ class TemplateBuilderTests(TestCase):
         )
 
     def test_helpers(self):
+        # The Create/meme-builder UI was removed, but the Template model + service helpers are
+        # retained so seeding can be revived later. Guard the helpers stay working.
         self.assertEqual(services.get_template(str(self.t.id)).name, "Drake Hotline Bling")
         self.assertEqual(len(services.list_templates()), 1)
-
-    def test_gallery_lists_templates(self):
-        r = self.client.get(reverse("clips_create"))
-        self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "Drake Hotline Bling")
-
-    def test_builder_page_renders(self):
-        r = self.client.get(reverse("clips_builder", args=[self.t.id]))
-        self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "Add text")
-        self.assertContains(r, "meme-canvas")
-
-    @patch("clips.services.template_image_bytes", return_value=b"\x89PNGfake")
-    def test_template_image_proxy_same_origin(self, mock_bytes):
-        # WHY: served same-origin so the builder canvas can export without tainting.
-        r = self.client.get(reverse("clips_template_image", args=[self.t.id]))
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r["Content-Type"], "image/jpeg")
-        self.assertEqual(r.content, b"\x89PNGfake")
 
 
 class VisibilityTests(TestCase):

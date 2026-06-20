@@ -22,7 +22,6 @@ urlpatterns = [
     path("clips/asset/<uuid:asset_id>/", RedirectView.as_view(pattern_name="clips_asset", permanent=True)),
 
     path("clips/", views.library, name="clips_library"),
-    path("clips/upload/", views.upload_page, name="clips_upload"),
     path("clips/record/", views.record_page, name="clips_record"),
     path("clips/upload/presign", views.presign, name="clips_presign"),
     path("clips/upload/finalize", views.finalize, name="clips_finalize"),
@@ -31,9 +30,6 @@ urlpatterns = [
     path("clips/templates/", views.template_gallery, name="clips_templates"),
     path("clips/<uuid:asset_id>/remix/", views.remix_page, name="clips_remix"),
     path("clips/<uuid:asset_id>/remix", views.remix_create, name="clips_remix_create"),
-    path("clips/create/", views.create_gallery, name="clips_create"),
-    path("clips/create/<uuid:template_id>/", views.builder, name="clips_builder"),
-    path("clips/template/<uuid:template_id>/raw", views.template_image, name="clips_template_image"),
     path("clips/asset/<uuid:asset_id>/status", views.asset_status, name="clips_asset_status"),
     path("clips/asset/<uuid:asset_id>/edit/", views.asset_edit, name="clips_edit"),
     path("clips/asset/<uuid:asset_id>/regenerate/", views.asset_regenerate, name="clips_regenerate"),
