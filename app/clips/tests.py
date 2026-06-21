@@ -362,6 +362,42 @@ class PublicSharePageTests(TestCase):
         self.assertEqual(self.client.get(reverse("clips_asset", args=[a.id])).status_code, 404)
 
 
+class SeoTests(TestCase):
+    """The crawl/index surfaces Google needs: canonical meta, robots.txt, sitemap.xml."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("seo@example.com", "seo@example.com")
+
+    def test_landing_pages_carry_canonical_and_description(self):
+        # WHY: every indexable page needs a canonical URL pinned to the one public origin (so the
+        # dual-served app.vent.dog host doesn't split ranking) and a meta description.
+        r = self.client.get(reverse("clips_about"))
+        self.assertContains(r, 'rel="canonical" href="https://clip.cool/about/"')
+        self.assertContains(r, 'name="description"')
+        self.assertContains(r, 'property="og:title"')
+
+    def test_robots_allows_crawl_and_points_at_sitemap(self):
+        # WHY: a missing/blocking robots.txt is the classic "site won't index" foot-gun.
+        r = self.client.get("/robots.txt")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["content-type"], "text/plain")
+        body = r.content.decode()
+        self.assertIn("Sitemap: https://clip.cool/sitemap.xml", body)
+        self.assertIn("Disallow: /admin/", body)
+
+    def test_sitemap_lists_static_pages_and_public_clips_only(self):
+        # WHY: the sitemap must include public clips for discovery but never leak private ones.
+        pub = Asset.objects.create(owner=self.user, original_key="p", status=Asset.Status.READY, is_public=True)
+        priv = Asset.objects.create(owner=self.user, original_key="x", status=Asset.Status.READY, is_public=False)
+        r = self.client.get("/sitemap.xml")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["content-type"], "application/xml")
+        body = r.content.decode()
+        self.assertIn("https://clip.cool/about/", body)
+        self.assertIn(f"https://clip.cool/{pub.id}", body)
+        self.assertNotIn(str(priv.id), body)
+
+
 class PublicMp4LinkTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("mp4@example.com", "mp4@example.com")

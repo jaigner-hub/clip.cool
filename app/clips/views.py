@@ -5,9 +5,11 @@ presigned direct-to-R2 PUT from JS, and search is a plain server-rendered GET.
 import json
 import logging
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
@@ -231,26 +233,84 @@ def search_page(request):
     clips only; a signed-in user also sees their own."""
     q = (request.GET.get("q") or "").strip()
     results = [services.serialize(a) for a in services.search_assets(request.user, q)] if q else []
-    return render(request, "clips/search.html", {"active_page": "clips", "q": q, "results": results})
+    return render(request, "clips/search.html", {
+        "active_page": "clips", "q": q, "results": results,
+        # The root / front door keeps base.html's homepage title + description as the canonical copy.
+    })
 
 
 def browse_page(request):
     """Public no-query discovery grid: a random sample of the public catalog."""
     clips = [services.serialize(a) for a in services.browse_assets()]
-    return render(request, "clips/browse.html", {"active_page": "clips_browse", "clips": clips})
+    return render(request, "clips/browse.html", {
+        "active_page": "clips_browse", "clips": clips,
+        "meta_title": "Browse clips · clip.cool",
+        "meta_description": "Browse the latest looping clips on clip.cool — a GIF repository where "
+        "every clip is made from a video on another site.",
+    })
 
 
 def about_page(request):
     """Public static page explaining what clip.cool is: a GIF repository where you turn videos
     from other sites into looping clips, no plugin or download."""
-    return render(request, "clips/about.html", {"active_page": "clips_about"})
+    return render(request, "clips/about.html", {
+        "active_page": "clips_about",
+        "meta_title": "About clip.cool — make GIFs from any video",
+        "meta_description": "clip.cool is a GIF repository where you make the GIFs: share a browser "
+        "tab, clip a moment from any video, then crop, trim, caption, and publish a looping clip.",
+    })
 
 
 def template_gallery(request):
     """Public template library: recorded clips anyone can browse and remix into a new GIF. No login
     to look; remixing one (clips_remix) requires signing in."""
     clips = [services.serialize(a) for a in services.list_template_clips()]
-    return render(request, "clips/templates.html", {"active_page": "clips_templates", "clips": clips})
+    return render(request, "clips/templates.html", {
+        "active_page": "clips_templates", "clips": clips,
+        "meta_title": "Template library · clip.cool",
+        "meta_description": "Remix any clip on clip.cool into your own GIF — re-trim, re-crop, and "
+        "caption a template into a new looping clip.",
+    })
+
+
+def robots_txt(request):
+    """robots.txt — allow the public surfaces, keep crawlers out of auth/admin/API/per-user actions,
+    and advertise the sitemap. Paths are absolute so they're host-independent."""
+    sitemap = settings.SITE_URL + reverse("clips_sitemap")
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /admin/",
+        "Disallow: /api/",
+        "Disallow: /oidc/",
+        "Disallow: /hijack/",
+        "Disallow: /clips/",  # per-user library + upload/edit/caption/remix actions
+        "Allow: /clips/browse/",
+        "Allow: /clips/templates/",
+        "",
+        f"Sitemap: {sitemap}",
+        "",
+    ]
+    return HttpResponse("\n".join(lines), content_type="text/plain")
+
+
+def sitemap_xml(request):
+    """Hand-rolled XML sitemap (avoids pulling in django.contrib.sites): the static public pages plus
+    every indexable public clip. URLs are pinned to SITE_URL so they match the canonical host."""
+    base = settings.SITE_URL
+    urls = [
+        {"loc": base + reverse("clips_search"), "priority": "1.0"},
+        {"loc": base + reverse("clips_browse"), "priority": "0.8"},
+        {"loc": base + reverse("clips_templates"), "priority": "0.7"},
+        {"loc": base + reverse("clips_about"), "priority": "0.5"},
+    ]
+    for asset_id, updated_at in services.public_clip_sitemap_entries():
+        urls.append({
+            "loc": base + reverse("clips_asset", args=[asset_id]),
+            "lastmod": updated_at.date().isoformat(),
+            "priority": "0.6",
+        })
+    return render(request, "clips/sitemap.xml", {"urls": urls}, content_type="application/xml")
 
 
 @login_required

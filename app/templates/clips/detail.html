@@ -1,14 +1,16 @@
 {% extends "app_base.html" %}
 {% load static %}
-{% block head %}
-<link rel="stylesheet" href="{% static 'clips/clips.css' %}">
-{# Open Graph / Twitter — so the canonical link unfurls (and autoplays) in chat/social. #}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
+{# Open Graph / Twitter — so the canonical link unfurls (and autoplays) in chat/social. Replaces
+   base.html's default site card. Private clips fall back to the default (block.super) — no leak. #}
+{% block social_meta %}
 {% if a.is_public %}
 <meta property="og:site_name" content="clip.cool">
 <meta property="og:title" content="{{ a.title|default:'clip.cool' }}">
-{% if a.description %}<meta property="og:description" content="{{ a.description }}">{% endif %}
-<meta property="og:url" content="{{ page_url }}">
+<meta property="og:description" content="{{ a.description|default:'A looping clip on clip.cool — clip a moment from any video.' }}">
+<meta property="og:url" content="{{ canonical_url }}">
 <meta property="og:image" content="{{ a.poster_url }}">
+<meta name="twitter:image" content="{{ a.poster_url }}">
 {% if a.media_type == 'video' and mp4_url %}
 <meta property="og:type" content="video.other">
 <meta property="og:video" content="{{ mp4_url }}">
@@ -21,7 +23,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 {% endif %}
-{% endif %}
+{% else %}{{ block.super }}{% endif %}
 {% endblock %}
 {% block title %}{{ a.title|default:'Clip' }} · clip.cool{% endblock %}
 {% block app_content %}

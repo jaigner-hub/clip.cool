@@ -83,6 +83,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "web.context_processors.admin_link",
                 "web.context_processors.instance_banner",
+                "web.context_processors.seo",
             ]
         },
     }
@@ -134,6 +135,16 @@ BREAK_GLASS_LOGIN_HOSTS = [h for h in env("DJANGO_BREAK_GLASS_LOGIN_HOSTS", "").
 # "Dev instance" banner label. None ⇒ no banner (prod). dev.py sets it to the local/mc instance
 # name so a throwaway local tab is never mistaken for production. Exposed via web.context_processors.
 KG_INSTANCE_LABEL = None
+
+# --- SEO / canonical origin ---------------------------------------------------------------------
+# The single public origin search engines (and OG/Twitter unfurlers) should attribute pages to.
+# `app.vent.dog` is dual-served during the transition, so canonical + social URLs are pinned to this
+# host regardless of which box/hostname actually served the request — otherwise the same clip indexes
+# twice and splits its ranking. Exposed to templates via web.context_processors.seo.
+SITE_URL = env("DJANGO_SITE_URL", "https://clip.cool").rstrip("/")
+# Google Search Console verification token (the `content` of its <meta> tag). Empty ⇒ tag omitted;
+# set DJANGO_GOOGLE_SITE_VERIFICATION once the property is claimed.
+GOOGLE_SITE_VERIFICATION = env("DJANGO_GOOGLE_SITE_VERIFICATION", "")
 
 _ISSUER = env("KEYCLOAK_ISSUER", "https://id.clip.cool/realms/keygrip").rstrip("/")
 KEYCLOAK_ISSUER = _ISSUER  # used by the JSON API bearer auth (web.api_auth)

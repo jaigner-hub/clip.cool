@@ -7,6 +7,10 @@ urlpatterns = [
     # Search IS the root (the discovery front door) — not a redirect.
     path("", views.search_page, name="clips_search"),
 
+    # SEO endpoints (root-level by convention; the <uuid> route below only matches UUIDs).
+    path("robots.txt", views.robots_txt, name="clips_robots"),
+    path("sitemap.xml", views.sitemap_xml, name="clips_sitemap"),
+
     # Canonical root URLs for a clip (short + shareable). One page per clip: humans get the full
     # page, chat/social unfurl off its OG/Twitter meta. .gif/.mp4 are direct-rendition links.
     path("<uuid:asset_id>", views.asset_detail, name="clips_asset"),

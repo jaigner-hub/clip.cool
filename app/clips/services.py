@@ -553,6 +553,17 @@ def browse_assets(limit=30):
     )
 
 
+def public_clip_sitemap_entries(*, limit=5000):
+    """(id, updated_at) for every indexable public clip, newest first — feeds the XML sitemap.
+    Capped so a runaway catalog can't blow up the response; revisit with sitemap-index paging if we
+    ever cross the limit."""
+    return list(
+        Asset.objects.filter(is_public=True, status=Asset.Status.READY)
+        .order_by("-updated_at")
+        .values_list("id", "updated_at")[:limit]
+    )
+
+
 def list_template_clips(*, limit=60):
     """The public template library: recorded video clips anyone can browse + remix. Membership =
     recorder-origin + public + ready (the owner's private toggle is the opt-out). Newest first.

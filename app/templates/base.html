@@ -5,7 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   {# stop HTMX injecting an inline <style> (would violate style-src 'self') #}
   <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
-  <title>{% block title %}keygrip{% endblock %}</title>
+  <title>{% block title %}clip.cool — make GIFs from any video{% endblock %}</title>
+  {% comment %}
+  SEO + social. Pages set meta_title / meta_description via view context (defaults below). The
+  canonical URL is pinned to SITE_URL (web.context_processors.seo) so dual-served hosts don't index
+  as duplicates. Per-clip pages override the social_meta block with a video player card.
+  ({% comment %} required: a multi-line {# #} isn't a valid Django comment — its tags would parse.)
+  {% endcomment %}
+  {% with metadesc=meta_description|default:"clip.cool is a GIF repository where you make the GIFs. Clip a moment from a video on any other site into a fast, searchable, shareable looping clip — no plugin, no download." metatitle=meta_title|default:"clip.cool — make GIFs from any video" %}
+  <meta name="description" content="{{ metadesc }}">
+  <link rel="canonical" href="{{ canonical_url }}">
+  {% if google_site_verification %}<meta name="google-site-verification" content="{{ google_site_verification }}">{% endif %}
+  {% block social_meta %}
+  <meta property="og:site_name" content="clip.cool">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ metatitle }}">
+  <meta property="og:description" content="{{ metadesc }}">
+  <meta property="og:url" content="{{ canonical_url }}">
+  <meta property="og:image" content="{{ site_url }}{% static 'web/apple-touch-icon.png' %}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="{{ metatitle }}">
+  <meta name="twitter:description" content="{{ metadesc }}">
+  <meta name="twitter:image" content="{{ site_url }}{% static 'web/apple-touch-icon.png' %}">
+  {% endblock %}
+  {% endwith %}
   <link rel="icon" href="{% static 'web/favicon.ico' %}" sizes="any">
   <link rel="icon" type="image/svg+xml" href="{% static 'web/favicon.svg' %}">
   <link rel="apple-touch-icon" href="{% static 'web/apple-touch-icon.png' %}">
