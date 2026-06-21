@@ -7,8 +7,8 @@
     <nav class="kg-nav">
       <a href="{% url 'clips_search' %}"{% if active_page == 'clips' %} class="is-active"{% endif %}>Search</a>
       <a href="{% url 'clips_browse' %}"{% if active_page == 'clips_browse' %} class="is-active"{% endif %}>Browse</a>
-      <a href="{% url 'clips_templates' %}"{% if active_page == 'clips_templates' %} class="is-active"{% endif %}>Templates</a>
       {% if user.is_authenticated %}
+      <a href="{% url 'clips_templates' %}"{% if active_page == 'clips_templates' %} class="is-active"{% endif %}>Templates</a>
       <a href="{% url 'clips_library' %}"{% if active_page == 'clips_library' %} class="is-active"{% endif %}>My clips</a>
       <a href="{% url 'clips_record' %}"{% if active_page == 'clips_record' %} class="is-active"{% endif %}>Create</a>
       {% endif %}
