@@ -34,6 +34,12 @@ body {
   font-family: var(--kg-sans);
 }
 
+/* Content links: the site accent reads on the dark canvas (browser default purple does not).
+   Nav/brand set their own, more-specific colors and are unaffected. :visited matches so visited
+   links don't drop back to dark purple. */
+a, a:visited { color: var(--kg-cyan); }
+a:hover { color: var(--kg-cyan-strong); }
+
 .kg-shell { margin: auto; width: 100%; max-width: 34rem; padding: 2rem 1.25rem; }
 
 .kg-wordmark {
