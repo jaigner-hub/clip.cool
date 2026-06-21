@@ -6,7 +6,8 @@
     <a href="{% if remix %}{% url 'clips_remix' r.id %}{% else %}{% url 'clips_asset' r.id %}{% endif %}" title="{{ r.description }}">
       {% if r.poster_url %}
       <img class="clip-thumb" src="{{ r.poster_url }}" alt="{{ r.description|default:r.title|default:'clip' }}" loading="lazy">
-      {% if r.text_layer_url %}<img class="clip-thumb-cap" src="{{ r.text_layer_url }}" alt="" loading="lazy">{% endif %}
+      {# remix grid = template library: show the bare clip, not the owner's burned-in caption. #}
+      {% if r.text_layer_url and not remix %}<img class="clip-thumb-cap" src="{{ r.text_layer_url }}" alt="" loading="lazy">{% endif %}
       {% else %}
       <div class="clip-thumb clip-thumb-empty">transcoding…</div>
       {% endif %}

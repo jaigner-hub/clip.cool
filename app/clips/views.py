@@ -203,7 +203,7 @@ def presign(request):
 @login_required
 @require_POST
 def finalize(request):
-    """JSON: {key, title?, content_type?, tags?} → the created asset (processing is async)."""
+    """JSON: {key, title?, content_type?, tags?, from_recorder?} → the created asset (async)."""
     data = _json(request)
     key = (data.get("key") or "").strip()
     if not key:
@@ -218,6 +218,8 @@ def finalize(request):
             crop=data.get("crop"),
             trim_start=data.get("trim_start"),
             trim_end=data.get("trim_end"),
+            # The in-browser recorder flags its clips so they join the template library.
+            from_recorder=bool(data.get("from_recorder")),
         )
     except ValueError as e:
         return JsonResponse({"error": str(e)}, status=422)

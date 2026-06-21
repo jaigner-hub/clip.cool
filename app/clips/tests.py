@@ -612,6 +612,21 @@ class TemplateLibraryTests(TestCase):
         a = services.finalize_asset(self.user, key="originals/x.webm", content_type="video/webm")
         self.assertFalse(a.from_recorder)
 
+    @patch("clips.tasks.transcode_asset")
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_finalize_view_forwards_recorder_flag(self, mock_public_url, mock_transcode):
+        # WHY: the recorder POSTs from_recorder=True to the finalize *view*. A regression dropped it
+        # in the view (the service still honored it), so every recording silently entered as a plain
+        # upload and the template library stayed empty. Guard the full request path, not the service.
+        self.client.force_login(self.user)
+        res = self.client.post(
+            reverse("clips_finalize"),
+            data={"key": "originals/r.webm", "content_type": "video/webm", "from_recorder": True},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(Asset.objects.get(id=res.json()["id"]).from_recorder)
+
     def _rec(self, **kw):
         defaults = dict(
             owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
