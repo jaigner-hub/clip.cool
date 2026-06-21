@@ -95,8 +95,14 @@
       {% if a.media_type == 'video' and a.is_public and asset.status == 'ready' %}
       <a class="kg-btn kg-btn-sm kg-btn-primary" href="{% url 'clips_remix' asset.id %}">🎬 Make a GIF from this</a>
       {% endif %}
-      {# Original source file — visible to anyone who can view the clip. #}
+      {# Downloads. For a video the GIF is the primary save (most-shareable artifact); MP4 + the raw
+         source are secondary. For an image there's just the one file. #}
+      {% if a.media_type == 'video' and asset.status == 'ready' %}
+      <a class="kg-btn kg-btn-sm" href="{% url 'clip_download_gif' asset.id %}">Download GIF ↓</a>
+      <a class="kg-acct-link" href="{% url 'clip_download' asset.id %}">Download MP4 ↓</a>
+      {% else %}
       <a class="kg-btn kg-btn-sm" href="{% url 'clip_download' asset.id %}">Download ↓</a>
+      {% endif %}
       <a class="kg-acct-link" href="{{ a.url }}" target="_blank" rel="noopener">Original file ↗</a>
     </div>
 
@@ -115,7 +121,6 @@
         <div class="clip-share-row">
           <input type="text" id="gif-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public_gif' asset.id %}">
           <button type="button" class="kg-btn kg-btn-sm" data-copy="#gif-url">Copy</button>
-          <a class="kg-btn kg-btn-sm" href="{% url 'clip_download_gif' asset.id %}">Download ↓</a>
         </div>
       </div>
       {% endif %}

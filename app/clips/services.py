@@ -281,12 +281,19 @@ def rendition_url(asset, kind):
 
 def download_url(asset):
     """Presigned GET that force-downloads the clip, named for it — so 'save' works cross-origin (e.g.
-    to re-send via Signal). Serves the CAPTIONED rendition (text burned in) when one exists, else the
-    original."""
+    to re-send via Signal). For a video this is the MP4 download: the CAPTIONED rendition (text burned
+    in) when one exists, else the H.264 mp4 — NOT the .webm original (the "Original file" link covers
+    that). For an image: the captioned PNG when one exists, else the original."""
     import os
 
     cap = asset.renditions.filter(kind=Rendition.Kind.CAPTIONED).first()
-    key = cap.r2_key if cap else asset.original_key
+    if cap:
+        key = cap.r2_key
+    elif asset.media_type == Asset.MediaType.VIDEO:
+        h264 = asset.renditions.filter(kind=Rendition.Kind.H264).first()
+        key = h264.r2_key if h264 else asset.original_key
+    else:
+        key = asset.original_key
     ext = os.path.splitext(key or "")[1]
     base = (asset.title or "").strip() or str(asset.id)
     safe = "".join(c if (c.isalnum() or c in " -_") else "" for c in base).strip() or str(asset.id)

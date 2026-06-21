@@ -528,6 +528,20 @@ class DownloadLinkTests(TestCase):
         a = Asset.objects.create(owner=u, original_key="originals/x.gif", status=Asset.Status.READY, is_public=False)
         self.assertEqual(self.client.get(reverse("clip_download", args=[a.id])).status_code, 404)
 
+    @patch("clips.services.storage.presign_get", return_value="https://r2/dl")
+    def test_video_download_serves_the_mp4_not_the_webm_original(self, mock_presign):
+        # WHY: the "Download MP4" button must hand back an actual .mp4 (the H.264 rendition), never the
+        # raw .webm original — that's what made the prominent Download give a surprising file. The
+        # "Original file" link is the only path to the source.
+        from clips.models import Rendition
+        u = User.objects.create_user("mp4@example.com", "mp4@example.com")
+        a = Asset.objects.create(owner=u, original_key="originals/x.webm", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, is_public=True, title="Clip")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="renditions/x/h264.mp4", mime="video/mp4")
+        self.client.get(reverse("clip_download", args=[a.id]))
+        self.assertEqual(mock_presign.call_args.args[0], "renditions/x/h264.mp4")
+        self.assertEqual(mock_presign.call_args.kwargs["filename"], "Clip.mp4")
+
 
 class DeleteTests(TestCase):
     def setUp(self):
