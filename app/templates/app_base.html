@@ -19,7 +19,6 @@
       <span class="kg-user kg-muted">{{ user.email }}</span>
       <a class="kg-acct-link" href="{% url 'account_password' %}?next={{ request.get_full_path|urlencode }}">Password</a>
       {% if user.is_staff %}<a class="kg-acct-link" href="{{ admin_url }}">Admin</a>{% endif %}
-      <a class="kg-acct-link" href="/api/v1/docs" target="_blank" rel="noopener">API</a>
       <form method="post" action="/oidc/logout/">
         {% csrf_token %}
         <button type="submit" class="kg-btn kg-btn-sm">Log out</button>
