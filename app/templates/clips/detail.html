@@ -1,8 +1,7 @@
 {% extends "app_base.html" %}
 {% load static %}
 {% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
-{# Open Graph / Twitter — so the canonical link unfurls (and autoplays) in chat/social. Replaces
-   base.html's default site card. Private clips fall back to the default (block.super) — no leak. #}
+{# OG/Twitter — replaces base.html's default site card so the link unfurls (and autoplays) in chat. Private clips fall back to the default via block.super (no leak). #}
 {% block social_meta %}
 {% if a.is_public %}
 <meta property="og:site_name" content="clip.cool">
@@ -95,8 +94,7 @@
       {% if a.media_type == 'video' and a.is_public and asset.status == 'ready' %}
       <a class="kg-btn kg-btn-sm kg-btn-primary" href="{% url 'clips_remix' asset.id %}">🎬 Make a GIF from this</a>
       {% endif %}
-      {# Downloads. For a video the GIF is the primary save (most-shareable artifact); MP4 + the raw
-         source are secondary. For an image there's just the one file. #}
+      {# Downloads: GIF is the primary save for a video; MP4 + raw source secondary; image = one file. #}
       {% if a.media_type == 'video' and asset.status == 'ready' %}
       <a class="kg-btn kg-btn-sm" href="{% url 'clip_download_gif' asset.id %}">Download GIF ↓</a>
       <a class="kg-acct-link" href="{% url 'clip_download' asset.id %}">Download MP4 ↓</a>
