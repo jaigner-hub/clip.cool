@@ -5,7 +5,7 @@
 {% block social_meta %}
 {% if a.is_public %}
 <meta property="og:site_name" content="clip.cool">
-<meta property="og:title" content="{{ a.title|default:'clip.cool' }}">
+<meta property="og:title" content="{% if a.title %}{{ a.title }}{% if a.media_type == 'video' %} GIF{% endif %}{% else %}GIF on clip.cool{% endif %}">
 <meta property="og:description" content="{{ a.description|default:'A looping clip on clip.cool — clip a moment from any video.' }}">
 <meta property="og:url" content="{{ canonical_url }}">
 <meta property="og:image" content="{{ a.poster_url }}">
@@ -24,7 +24,8 @@
 {% endif %}
 {% else %}{{ block.super }}{% endif %}
 {% endblock %}
-{% block title %}{{ a.title|default:'Clip' }} · clip.cool{% endblock %}
+{# "<title> GIF" for videos targets the "<title> gif" search the way Giphy/Tenor pages do. #}
+{% block title %}{% if a.media_type == 'video' %}{{ a.title|default:'GIF' }}{% if a.title %} GIF{% endif %}{% else %}{{ a.title|default:'Clip' }}{% endif %} · clip.cool{% endblock %}
 {% block app_content %}
 <div class="kg-page-head">
   {% if can_edit %}<a class="kg-acct-link" href="{% url 'clips_library' %}">← My clips</a>

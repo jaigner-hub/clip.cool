@@ -1,7 +1,7 @@
 {% extends "app_base.html" %}
 {% load static %}
 {% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
-{% block title %}About · clip.cool{% endblock %}
+{# <title> comes from the view's meta_title (clips.views.about_page). #}
 {% block app_content %}
 <div class="kg-page-head">
   <h1 class="kg-title">What is clip.cool?</h1>

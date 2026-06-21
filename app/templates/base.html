@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   {# stop HTMX injecting an inline <style> (would violate style-src 'self') #}
   <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
-  <title>{% block title %}clip.cool — make GIFs from any video{% endblock %}</title>
+  <title>{% block title %}{{ meta_title|default:"clip.cool — GIF search & maker, make GIFs from any video" }}{% endblock %}</title>
   {% comment %}
   SEO + social. Pages set meta_title / meta_description via view context (defaults below). The
   canonical URL is pinned to SITE_URL (web.context_processors.seo) so dual-served hosts don't index

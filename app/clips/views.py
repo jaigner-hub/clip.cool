@@ -184,7 +184,12 @@ def record_page(request):
     """In-browser tab recorder: share a tab (getDisplayMedia) → record the moment → upload the
     captured webm through the same presign/finalize path as a file upload. No backend ingest
     changes — MediaRecorder emits video/webm, which finalize routes to the transcode queue."""
-    return render(request, "clips/record.html", {"active_page": "clips_record"})
+    return render(request, "clips/record.html", {
+        "active_page": "clips_record",
+        "meta_title": "GIF Maker — Make a GIF From Any Video · clip.cool",
+        "meta_description": "Make a GIF from any video in your browser: share a tab, record the "
+        "moment, then crop, trim, and caption it into a fast looping GIF. No plugin, no download.",
+    })
 
 
 @login_required
@@ -230,12 +235,22 @@ def finalize(request):
 
 def search_page(request):
     """Public server-rendered search: GET ?q= → Typesense → hydrated results. Logged out ⇒ public
-    clips only; a signed-in user also sees their own."""
+    clips only; a signed-in user also sees their own. This is the root / front door — its title +
+    description are the homepage's primary SEO copy. With a query, the title reflects it (e.g.
+    "cat GIFs") for a more relevant tab/snippet (the canonical still collapses to root)."""
     q = (request.GET.get("q") or "").strip()
     results = [services.serialize(a) for a in services.search_assets(request.user, q)] if q else []
+    if q:
+        meta_title = "%s GIFs · clip.cool" % q
+        meta_description = ("Search GIFs and memes for “%s” on clip.cool — fast looping clips, or "
+                            "make your own from any video." % q)
+    else:
+        meta_title = "GIF Search & Maker — Make GIFs From Any Video · clip.cool"
+        meta_description = ("Search thousands of GIFs and memes, or make your own from any video — "
+                            "clip a moment, crop, caption, and share a fast looping GIF. Free on clip.cool.")
     return render(request, "clips/search.html", {
         "active_page": "clips", "q": q, "results": results,
-        # The root / front door keeps base.html's homepage title + description as the canonical copy.
+        "meta_title": meta_title, "meta_description": meta_description,
     })
 
 
@@ -244,9 +259,9 @@ def browse_page(request):
     clips = [services.serialize(a) for a in services.browse_assets()]
     return render(request, "clips/browse.html", {
         "active_page": "clips_browse", "clips": clips,
-        "meta_title": "Browse clips · clip.cool",
-        "meta_description": "Browse the latest looping clips on clip.cool — a GIF repository where "
-        "every clip is made from a video on another site.",
+        "meta_title": "Browse Trending GIFs & Memes · clip.cool",
+        "meta_description": "Browse the newest looping GIFs and memes on clip.cool — every clip is "
+        "made from a video and served as fast autoplay video, never a clunky GIF file.",
     })
 
 
@@ -255,9 +270,9 @@ def about_page(request):
     from other sites into looping clips, no plugin or download."""
     return render(request, "clips/about.html", {
         "active_page": "clips_about",
-        "meta_title": "About clip.cool — make GIFs from any video",
-        "meta_description": "clip.cool is a GIF repository where you make the GIFs: share a browser "
-        "tab, clip a moment from any video, then crop, trim, caption, and publish a looping clip.",
+        "meta_title": "About clip.cool — GIF Search & Maker",
+        "meta_description": "clip.cool is a GIF search engine and maker: search GIFs and memes, or "
+        "make your own — share a browser tab, clip a moment from any video, then crop, caption, and publish.",
     })
 
 
@@ -267,9 +282,9 @@ def template_gallery(request):
     clips = [services.serialize(a) for a in services.list_template_clips()]
     return render(request, "clips/templates.html", {
         "active_page": "clips_templates", "clips": clips,
-        "meta_title": "Template library · clip.cool",
-        "meta_description": "Remix any clip on clip.cool into your own GIF — re-trim, re-crop, and "
-        "caption a template into a new looping clip.",
+        "meta_title": "GIF Templates to Remix · clip.cool",
+        "meta_description": "Remix ready-made GIF templates into your own meme — re-trim, re-crop, "
+        "and caption any clip into a new looping GIF on clip.cool.",
     })
 
 

@@ -380,6 +380,21 @@ class SeoTests(TestCase):
         self.assertContains(r, 'name="description"')
         self.assertContains(r, 'property="og:title"')
 
+    def test_titles_are_keyword_rich_not_bare_labels(self):
+        # WHY: the homepage and section titles are prime SEO real estate — they must carry the GIF
+        # keyword, not bare UI labels like "Search"/"Browse" (that's what we're ranking on).
+        self.assertContains(self.client.get(reverse("clips_search")), "<title>GIF Search")
+        self.assertContains(self.client.get(reverse("clips_browse")), "Browse Trending GIFs")
+        self.assertContains(self.client.get(reverse("clips_templates")), "GIF Templates to Remix")
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_clip_page_title_targets_the_gif_search(self, mock_url):
+        # WHY: a video clip page is "<title> GIF" (Giphy/Tenor convention) so it ranks for that query.
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
+                                 status=Asset.Status.READY, is_public=True, title="Dancing Cat")
+        self.assertContains(self.client.get(reverse("clips_asset", args=[a.id])),
+                            "<title>Dancing Cat GIF · clip.cool</title>", html=False)
+
     def test_robots_allows_crawl_and_points_at_sitemap(self):
         # WHY: a missing/blocking robots.txt is the classic "site won't index" foot-gun.
         r = self.client.get("/robots.txt")

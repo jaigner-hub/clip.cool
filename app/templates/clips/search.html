@@ -1,7 +1,7 @@
 {% extends "app_base.html" %}
 {% load static %}
 {% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
-{% block title %}Search · clip.cool{% endblock %}
+{# <title> comes from the view's meta_title (SEO copy lives in one place — clips.views.search_page). #}
 {% block app_content %}
 <div class="clip-search-hero{% if q %} is-compact{% endif %}">
   <a class="clip-search-brand" href="{% url 'clips_search' %}">clip.cool</a>
