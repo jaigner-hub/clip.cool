@@ -34,10 +34,11 @@ body {
   font-family: var(--kg-sans);
 }
 
-/* Content links: the site accent reads on the dark canvas (browser default purple does not).
-   Nav/brand set their own, more-specific colors and are unaffected. :visited matches so visited
-   links don't drop back to dark purple. */
-a, a:visited { color: var(--kg-cyan); }
+/* Content links: the site accent reads on the dark canvas (browser default purple does not). A bare
+   `a` rule beats the UA's :visited purple (author > UA), so no :visited selector is needed — and
+   adding one would out-specify .kg-btn-primary and paint visited buttons cyan-on-cyan. Buttons,
+   nav, and account links keep their own (more-specific) colors. */
+a { color: var(--kg-cyan); }
 a:hover { color: var(--kg-cyan-strong); }
 
 .kg-shell { margin: auto; width: 100%; max-width: 34rem; padding: 2rem 1.25rem; }
