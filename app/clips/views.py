@@ -40,9 +40,17 @@ def asset_detail(request, asset_id):
     a = services.serialize(asset)
     sources = services.video_sources(asset) if asset.media_type == Asset.MediaType.VIDEO else []
     mp4_url = next((s["url"] for s in sources if s["kind"] == "h264"), a.get("url"))
+    # VideoObject JSON-LD (Google video rich results). Escape <, >, & so a title/description can't
+    # break out of the <script> block — the same escaping Django's json_script filter applies.
+    jsonld = services.video_jsonld(asset)
+    video_jsonld = (
+        json.dumps(jsonld).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        if jsonld else ""
+    )
     return render(request, "clips/detail.html", {
         "active_page": "clips_library", "asset": asset, "a": a, "sources": sources,
         "can_edit": can_edit, "mp4_url": mp4_url, "page_url": request.build_absolute_uri(),
+        "video_jsonld": video_jsonld,
     })
 
 

@@ -383,6 +383,55 @@ def video_sources(asset):
     return [{"kind": r.kind, "url": storage.public_url(r.r2_key), "mime": r.mime} for r in rends]
 
 
+def _iso8601_duration(seconds):
+    """Float seconds → ISO 8601 duration (e.g. 3.4 → 'PT3S', 95 → 'PT1M35S'), or None if unknown."""
+    s = int(round(seconds or 0))
+    if s <= 0:
+        return None
+    m, sec = divmod(s, 60)
+    h, m = divmod(m, 60)
+    out = "PT"
+    if h:
+        out += "%dH" % h
+    if m:
+        out += "%dM" % m
+    if sec or out == "PT":
+        out += "%dS" % sec
+    return out
+
+
+def video_jsonld(asset):
+    """schema.org VideoObject for a clip's detail page (Google video rich results / thumbnails), or
+    None when not applicable. Only public + ready videos that have both a poster (thumbnailUrl is
+    required) and an H.264 mp4 (contentUrl) qualify. Returns a plain dict; the view JSON-encodes it."""
+    if (asset.media_type != Asset.MediaType.VIDEO or asset.status != Asset.Status.READY
+            or not asset.is_public or not asset.poster_key):
+        return None
+    h264 = asset.renditions.filter(kind=Rendition.Kind.H264).first()
+    if not h264:
+        return None
+    name = asset.title or "GIF on clip.cool"
+    desc = (asset.description or asset.ocr_text
+            or "A looping clip on clip.cool — clip a moment from any video.").strip()
+    data = {
+        "@context": "https://schema.org",
+        "@type": "VideoObject",
+        "name": name,
+        "description": desc[:500],
+        "thumbnailUrl": [storage.public_url(asset.poster_key)],
+        "uploadDate": asset.created_at.isoformat(),
+        "contentUrl": storage.public_url(h264.r2_key),
+        "url": "%s/%s" % (settings.SITE_URL, asset.id),
+    }
+    dur = _iso8601_duration(asset.duration)
+    if dur:
+        data["duration"] = dur
+    if asset.width and asset.height:
+        data["width"] = asset.width
+        data["height"] = asset.height
+    return data
+
+
 def autodescribe_asset(asset_id, *, force_title=False):
     """Vision auto-labeling via OpenRouter (clips.llm): fills title (only if unset, unless
     force_title) + description, and merges extra tags. Best-effort — any failure leaves the

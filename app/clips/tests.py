@@ -395,6 +395,44 @@ class SeoTests(TestCase):
         self.assertContains(self.client.get(reverse("clips_asset", args=[a.id])),
                             "<title>Dancing Cat GIF · clip.cool</title>", html=False)
 
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_video_clip_emits_videoobject_jsonld(self, mock_url):
+        # WHY: VideoObject JSON-LD is what earns Google video rich results / thumbnails for clip pages.
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4", poster_key="posters/x.webp",
+                                 media_type=Asset.MediaType.VIDEO, status=Asset.Status.READY,
+                                 is_public=True, title="Dancing Cat", width=640, height=360, duration=4.2)
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="renditions/x/h264.mp4", mime="video/mp4")
+        data = services.video_jsonld(a)
+        self.assertEqual(data["@type"], "VideoObject")
+        self.assertEqual(data["name"], "Dancing Cat")
+        self.assertEqual(data["contentUrl"], "https://cdn/renditions/x/h264.mp4")
+        self.assertEqual(data["thumbnailUrl"], ["https://cdn/posters/x.webp"])
+        self.assertEqual(data["duration"], "PT4S")
+        self.assertIn("uploadDate", data)
+        # The page carries the ld+json data block.
+        r = self.client.get(reverse("clips_asset", args=[a.id]))
+        self.assertContains(r, 'type="application/ld+json"')
+        self.assertContains(r, '"VideoObject"')
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_jsonld_escapes_script_breakout(self, mock_url):
+        # WHY: a title with </script> must not break out of the JSON-LD <script> block (XSS / broken page).
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4", poster_key="posters/x.webp",
+                                 media_type=Asset.MediaType.VIDEO, status=Asset.Status.READY,
+                                 is_public=True, title="evil</script><b>x")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="renditions/x/h264.mp4", mime="video/mp4")
+        r = self.client.get(reverse("clips_asset", args=[a.id]))
+        self.assertNotContains(r, "</script><b>x")   # the raw breakout never reaches the HTML
+        self.assertContains(r, "\\u003c/script")      # escaped instead
+
+    def test_image_clip_has_no_videoobject(self):
+        # WHY: VideoObject is for videos only — an image must not claim to be a video.
+        a = Asset.objects.create(owner=self.user, original_key="o.png", poster_key="posters/x.webp",
+                                 media_type=Asset.MediaType.IMAGE, status=Asset.Status.READY, is_public=True)
+        self.assertIsNone(services.video_jsonld(a))
+
     def test_robots_allows_crawl_and_points_at_sitemap(self):
         # WHY: a missing/blocking robots.txt is the classic "site won't index" foot-gun.
         r = self.client.get("/robots.txt")
