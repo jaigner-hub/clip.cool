@@ -10,7 +10,7 @@ document.addEventListener('alpine:init', () => {
     clips:         "It looks like you're searching! Type what's in the clip — we read the text and the pictures, not just the title.",
     clips_browse:  "Browsing the latest. See one you like? Click through for the video, the GIF, or a quick caption.",
     clips_library: "Your clips live here. Click one to caption it, edit it, or copy a share link.",
-    clips_record:  "It looks like you're recording a tab! Crop, trim and caption right here — no plugin needed.",
+    clips_record:  "It looks like you're making a clip! Share a tab from any site, play your moment, then record, crop and trim — no plugin needed.",
   };
   const DEFAULT_TIP = "Hi, I'm Clippy! It looks like you're hosting clips. Need a hand?";
   const HIDE_KEY = 'clippy-hidden';

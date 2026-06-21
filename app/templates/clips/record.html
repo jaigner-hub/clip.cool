@@ -1,13 +1,15 @@
 {% extends "app_base.html" %}
 {% load static %}
 {% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
-{% block title %}Record a tab · clip.cool{% endblock %}
+{% block title %}Create a clip · clip.cool{% endblock %}
 {% block app_content %}
 <div class="kg-page-head">
-  <h1 class="kg-title">Record a tab</h1>
-  <p class="kg-sub">Share a browser tab (your video, a stream, anything you can watch), capture the
-    moment, and we'll turn it into a looping clip. Tip: tick <em>“Also share tab audio”</em> in the
-    picker if you want sound.</p>
+  <h1 class="kg-title">Create a clip</h1>
+  <p class="kg-sub">Clip a moment from any other site — a video, a stream, a game, anything you can
+    watch in a browser tab. <strong>Share the tab</strong> you want to clip, switch to it and
+    <strong>play your moment</strong>, then hit <strong>Record</strong> and <strong>Stop</strong>.
+    Drag on the result to crop, trim the ends, and publish — we transcode it into a tidy looping
+    clip. Tip: tick <em>“Also share tab audio”</em> in the picker if you want sound.</p>
 </div>
 
 <div id="clip-record" class="kg-card"

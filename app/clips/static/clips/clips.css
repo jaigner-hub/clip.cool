@@ -317,9 +317,11 @@
 }
 
 /* The author display rules above beat the UA [hidden] rule, so hidden stage/video kept showing.
-   Restore [hidden] for these so the empty preview + playback boxes stay gone until used. */
+   Restore [hidden] for these so the empty preview + playback boxes stay gone until used.
+   .kg-row { display:flex } likewise leaked the Record controls before a tab was shared. */
 .clip-record-stage[hidden],
-.clip-record-video[hidden] { display: none; }
+.clip-record-video[hidden],
+.kg-row[hidden] { display: none; }
 
 /* Detail page: media still transcoding (video has no renditions yet) — show this instead of
    pointing an <img> at the .webm original (which renders as a broken image). */

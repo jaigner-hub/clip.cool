@@ -5,8 +5,8 @@
 {% block app_content %}
 <div class="kg-page-head">
   <h1 class="kg-title">My clips</h1>
-  <p class="kg-sub">Everything you've recorded, newest first.</p>
-  <a class="kg-btn kg-btn-sm" href="{% url 'clips_record' %}">Record</a>
+  <p class="kg-sub">Everything you've created, newest first.</p>
+  <a class="kg-btn kg-btn-sm" href="{% url 'clips_record' %}">Create</a>
 </div>
 
 {% if assets %}
@@ -32,7 +32,7 @@
 {% else %}
 <div class="kg-empty">
   <p class="kg-empty-title">No clips yet</p>
-  <p class="kg-muted">Record a tab (or remix one) and it'll show up here.</p>
+  <p class="kg-muted">Create a clip (or remix one) and it'll show up here.</p>
 </div>
 {% endif %}
 {% endblock %}
