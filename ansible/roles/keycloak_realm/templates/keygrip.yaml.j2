@@ -2,7 +2,10 @@
 # Real secrets are injected by kcc env substitution at apply time — never hardcode them here.
 realm: keygrip
 enabled: true
-displayName: "keygrip"
+# Realm NAME stays `keygrip` (identifier in issuer URLs / client configs / etcd — shared with chat).
+# displayName is cosmetic: it's what Keycloak's default email templates print ("your clip.cool
+# account") and any UI that shows the realm name. Rebranded to clip.cool, the primary web property.
+displayName: "clip.cool"
 loginTheme: keygrip
 # NONE (was external): the 2nd app node (vent.dog2) reaches Keycloak for JWKS/admin over the tailnet,
 # whose CGNAT 100.64/10 source IP Keycloak treats as "external" -> would demand HTTPS on the internal

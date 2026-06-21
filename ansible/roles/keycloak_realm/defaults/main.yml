@@ -39,7 +39,9 @@ grafana_redirect_uri: "https://vent-keygrip.tail1ec6c3.ts.net:8443/login/generic
 glitchtip_redirect_uri: "https://vent-keygrip.tail1ec6c3.ts.net:8445/accounts/oidc/keycloak/login/callback/"
 # Transactional email (Resend). `from` must be on a Resend-verified domain (vent.dog).
 keycloak_smtp_from: "noreply@vent.dog"
-keycloak_smtp_from_display: "Keygrip"
+# Sender display name in the inbox. clip.cool is the primary web property now; this realm is shared
+# with the chat app, so its emails carry this branding too (Keycloak has no per-client email theme).
+keycloak_smtp_from_display: "clip.cool"
 
 # --- Vent chat (chat.vent.dog) OIDC client ---
 # The Vent Go server is the confidential RP: the browser logs in against this realm, the Go server
