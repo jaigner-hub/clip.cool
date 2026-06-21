@@ -240,6 +240,12 @@ def browse_page(request):
     return render(request, "clips/browse.html", {"active_page": "clips_browse", "clips": clips})
 
 
+def about_page(request):
+    """Public static page explaining what clip.cool is: a GIF repository where you turn videos
+    from other sites into looping clips, no plugin or download."""
+    return render(request, "clips/about.html", {"active_page": "clips_about"})
+
+
 def template_gallery(request):
     """Public template library: recorded clips anyone can browse and remix into a new GIF. No login
     to look; remixing one (clips_remix) requires signing in."""

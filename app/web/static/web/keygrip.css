@@ -144,6 +144,18 @@ body {
 .kg-main { flex: 1; width: 100%; max-width: 60rem; margin: 0 auto; padding: 2rem 1.5rem; }
 .kg-page-head { margin-bottom: 1.5rem; }
 
+/* Long-form copy (About and similar static pages). */
+.kg-prose { max-width: 42rem; }
+.kg-prose h2 {
+  font-family: var(--kg-serif); font-weight: 600; font-size: 1.15rem;
+  margin: 1.75rem 0 0.5rem;
+}
+.kg-prose p { margin: 0 0 1rem; line-height: 1.6; color: var(--kg-ink); }
+.kg-prose code {
+  font-size: 0.88em; background: var(--kg-surface);
+  border: 1px solid var(--kg-line); border-radius: 5px; padding: 0.05rem 0.3rem;
+}
+
 .kg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 .kg-list-item {
   display: flex; justify-content: space-between; align-items: center;

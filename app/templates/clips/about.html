@@ -1,0 +1,34 @@
+{% extends "app_base.html" %}
+{% load static %}
+{% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">{% endblock %}
+{% block title %}About · clip.cool{% endblock %}
+{% block app_content %}
+<div class="kg-page-head">
+  <h1 class="kg-title">What is clip.cool?</h1>
+  <p class="kg-sub">A GIF repository where you make the GIFs. Clip a moment from a video on any
+    other site and it becomes a tidy, searchable, shareable looping clip — no plugin, no download,
+    no GIF-maker app.</p>
+</div>
+
+<div class="kg-prose">
+  <h2>Turn any video into a clip</h2>
+  <p>See a moment you want — a stream, a movie scene, a game, a clip on another site? Open
+    <a href="{% url 'clips_record' %}">Create</a>, share the browser tab you're watching it in,
+    play the moment, and hit Record. Drag to crop, trim the ends, add a caption, and publish.
+    We do the rest.</p>
+
+  <h2>Real video, not a 1987 GIF</h2>
+  <p>Old GIFs are huge and look bad. Behind the scenes every clip is transcoded into a modern
+    looping video that loads fast and looks sharp, while still giving you a real
+    <code>.gif</code> to drop into chats that only autoplay GIFs (Discord, Signal, and friends).</p>
+
+  <h2>Search and remix</h2>
+  <p>Clips are indexed by what's in them — the text on screen and what's said — so you can
+    <a href="{% url 'clips_search' %}">search</a> for the one you remember, or just
+    <a href="{% url 'clips_browse' %}">browse</a> what's new. Like one? Remix it: re-trim,
+    re-crop, and re-caption any clip into a new one of your own.</p>
+
+  <h2>Get started</h2>
+  <p><a href="{% url 'clips_record' %}">Create your first clip →</a></p>
+</div>
+{% endblock %}

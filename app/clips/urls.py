@@ -27,6 +27,7 @@ urlpatterns = [
     path("clips/upload/finalize", views.finalize, name="clips_finalize"),
     path("clips/search/", RedirectView.as_view(pattern_name="clips_search", query_string=True, permanent=True)),
     path("clips/browse/", views.browse_page, name="clips_browse"),
+    path("about/", views.about_page, name="clips_about"),
     path("clips/templates/", views.template_gallery, name="clips_templates"),
     path("clips/<uuid:asset_id>/remix/", views.remix_page, name="clips_remix"),
     path("clips/<uuid:asset_id>/remix", views.remix_create, name="clips_remix_create"),
