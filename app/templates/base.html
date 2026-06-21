@@ -16,8 +16,7 @@
   ({% comment %} is required here: a multi-line {# #} is not a valid Django comment.)
   {% endcomment %}
   <script src="{% static 'web/vendor/htmx.min.js' %}" defer></script>
-  {# Clippy assistant component — registered before Alpine so it's ready at alpine:init #}
-  <script src="{% static 'web/clippy.js' %}" defer></script>
+  {# Clippy disabled for now — restore: this script tag + the _clippy.html include in app_base.html. #}
   <script src="{% static 'web/vendor/alpine-csp.min.js' %}" defer></script>
   {% block head %}{% endblock %}
 </head>
