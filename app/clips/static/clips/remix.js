@@ -19,6 +19,8 @@
     trimPlayhead: document.getElementById("trim-playhead"),
     trimIn: document.getElementById("trim-in"),
     trimOut: document.getElementById("trim-out"),
+    trimInNum: document.getElementById("trim-in-num"),
+    trimOutNum: document.getElementById("trim-out-num"),
     trimLabel: document.getElementById("trim-label"),
     trimReset: document.getElementById("trim-reset"),
     title: document.getElementById("remix-title"),
@@ -32,7 +34,8 @@
   const edit = ClipEdit.init({
     video: els.playback, cropCanvas: els.cropCanvas, cropReset: els.cropReset,
     trim: els.trim, trimBar: els.trimBar, trimSel: els.trimSel, trimPlayhead: els.trimPlayhead,
-    trimIn: els.trimIn, trimOut: els.trimOut, trimLabel: els.trimLabel, trimReset: els.trimReset,
+    trimIn: els.trimIn, trimOut: els.trimOut, trimInNum: els.trimInNum, trimOutNum: els.trimOutNum,
+    trimLabel: els.trimLabel, trimReset: els.trimReset,
   });
 
   function cookie(name) {

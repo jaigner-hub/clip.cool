@@ -46,8 +46,14 @@
       <div class="clip-trim-handle" id="trim-in" title="Start"></div>
       <div class="clip-trim-handle" id="trim-out" title="End"></div>
     </div>
+    <div class="clip-trim-fields">
+      <label class="clip-trim-field">Start <input type="number" id="trim-in-num" class="clip-trim-num"
+        min="0" step="0.01" inputmode="decimal" aria-label="Trim start (seconds)"><span class="kg-muted">s</span></label>
+      <label class="clip-trim-field">End <input type="number" id="trim-out-num" class="clip-trim-num"
+        min="0" step="0.01" inputmode="decimal" aria-label="Trim end (seconds)"><span class="kg-muted">s</span></label>
+    </div>
     <div class="clip-trim-row">
-      <span class="kg-muted" id="trim-label">in 0.0s · out 0.0s · 0.0s clip</span>
+      <span class="kg-muted" id="trim-label">in 0.00s · out 0.00s · 0.00s clip</span>
       <button type="button" class="kg-btn kg-btn-sm" id="trim-reset">Reset trim</button>
     </div>
   </div>

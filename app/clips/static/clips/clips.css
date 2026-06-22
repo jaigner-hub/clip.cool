@@ -369,6 +369,16 @@
 }
 .clip-trim-row { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
 .clip-trim-row .kg-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.clip-trim-fields { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+.clip-trim-field {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--kg-muted);
+}
+.clip-trim-num {
+  width: 6.5em; padding: 4px 6px; background: var(--kg-bg-2);
+  color: var(--kg-fg); border: 1px solid var(--kg-border); border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+}
+.clip-trim-num:focus { outline: none; border-color: var(--kg-cyan); }
 
 /* Grid card thumb for a clip with no poster yet (still transcoding) — placeholder instead of a
    broken <img src=""> (.clip-thumb gives the 16/10 box; line-height resets the card's line-height:0). */

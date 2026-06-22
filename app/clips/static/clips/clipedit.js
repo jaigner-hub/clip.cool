@@ -22,6 +22,7 @@
     const els = opts;
     const isLocked = opts.isLocked || function () { return false; };
     const MIN_CROP_PX = 16;   // a drag smaller than this (in display px) is treated as a stray click
+    const MIN_TRIM = 0.02;    // smallest kept range / handle gap (s) — fine enough to land on a frame
 
     let cropDisp = null;      // selection in display (overlay) px: {x,y,w,h}; null = whole frame
     let dragStart = null;     // pointer-down point while dragging
@@ -43,8 +44,11 @@
       els.trimIn.style.left = inPct + "%";
       els.trimOut.style.left = outPct + "%";
       els.trimLabel.textContent =
-        "in " + trimInS.toFixed(1) + "s · out " + trimOutS.toFixed(1) + "s · "
-        + (trimOutS - trimInS).toFixed(1) + "s clip";
+        "in " + trimInS.toFixed(2) + "s · out " + trimOutS.toFixed(2) + "s · "
+        + (trimOutS - trimInS).toFixed(2) + "s clip";
+      // Mirror the handles into the numeric boxes, but never clobber a field being typed into.
+      if (els.trimInNum && document.activeElement !== els.trimInNum) els.trimInNum.value = trimInS.toFixed(2);
+      if (els.trimOutNum && document.activeElement !== els.trimOutNum) els.trimOutNum.value = trimOutS.toFixed(2);
     }
 
     function setPlayhead(t) {
@@ -71,8 +75,8 @@
     function onTrimMove(ev) {
       if (!trimDrag) return;
       const t = barSeconds(ev.clientX);
-      if (trimDrag === "in") trimInS = clamp(t, 0, trimOutS - 0.1);
-      else trimOutS = clamp(t, trimInS + 0.1, clipDuration);
+      if (trimDrag === "in") trimInS = clamp(t, 0, trimOutS - MIN_TRIM);
+      else trimOutS = clamp(t, trimInS + MIN_TRIM, clipDuration);
       const edge = trimDrag === "in" ? trimInS : trimOutS;
       try { els.video.currentTime = edge; } catch (e) {}
       setPlayhead(edge);
@@ -80,6 +84,23 @@
     }
 
     function endTrimDrag() { trimDrag = null; }
+
+    // Commit a hand-typed start/end value (on "change", i.e. blur/Enter — not mid-keystroke).
+    function commitTrimNum(which) {
+      return function () {
+        if (clipDuration <= 0) return;
+        const el = which === "in" ? els.trimInNum : els.trimOutNum;
+        const v = parseFloat(el.value);
+        if (!isFinite(v)) { layoutTrim(); return; }   // garbage in → snap the box back to the real value
+        if (which === "in") trimInS = clamp(v, 0, trimOutS - MIN_TRIM);
+        else trimOutS = clamp(v, trimInS + MIN_TRIM, clipDuration);
+        const edge = which === "in" ? trimInS : trimOutS;
+        el.value = edge.toFixed(2);   // reflect any clamp even while the field keeps focus
+        try { els.video.currentTime = edge; } catch (e) {}
+        setPlayhead(edge);
+        layoutTrim();
+      };
+    }
 
     function resetTrim() { trimInS = 0; trimOutS = clipDuration; layoutTrim(); setPlayhead(0); }
 
@@ -200,6 +221,8 @@
       els.trimBar.addEventListener("pointercancel", endTrimDrag);
       if (els.trimReset) els.trimReset.addEventListener("click", resetTrim);
     }
+    if (els.trimInNum) els.trimInNum.addEventListener("change", commitTrimNum("in"));
+    if (els.trimOutNum) els.trimOutNum.addEventListener("change", commitTrimNum("out"));
     window.addEventListener("pointerup", endTrimDrag);
 
     // Loop playback within the kept range, and track the playhead.
@@ -220,6 +243,8 @@
         clipDuration = (isFinite(duration) && duration > 0) ? duration : 0;
         trimInS = 0;
         trimOutS = clipDuration;
+        if (els.trimInNum) els.trimInNum.max = clipDuration.toFixed(2);
+        if (els.trimOutNum) els.trimOutNum.max = clipDuration.toFixed(2);
         layoutTrim();
         setPlayhead(0);
         show(els.trim, true);
