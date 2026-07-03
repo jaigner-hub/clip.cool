@@ -3,7 +3,7 @@
 <ul class="clip-grid">
   {% for r in items %}
   <li class="clip-card">
-    <a href="{% if remix %}{% url 'clips_remix' r.id %}{% else %}{% url 'clips_asset' r.id %}{% endif %}" title="{{ r.description }}">
+    <a href="{% if remix %}{% url 'clips_remix' r.id %}{% else %}{% url 'clips_asset' r.code %}{% endif %}" title="{{ r.description }}">
       {% if r.poster_url %}
       <img class="clip-thumb" src="{{ r.poster_url }}" alt="{{ r.description|default:r.title|default:'clip' }}" loading="lazy">
       {# remix grid = template library: show the bare clip, not the owner's burned-in caption. #}

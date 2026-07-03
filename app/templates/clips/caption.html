@@ -4,7 +4,7 @@
 {% block title %}Caption · clip.cool{% endblock %}
 {% block app_content %}
 <div class="kg-page-head">
-  <a class="kg-acct-link" href="{% url 'clips_asset' asset.id %}">← Back to clip</a>
+  <a class="kg-acct-link" href="{% url 'clips_asset' asset.code %}">← Back to clip</a>
   <h1 class="kg-title">Add captions</h1>
 </div>
 
@@ -27,7 +27,7 @@
         data-layers="{{ layers_json }}"
         data-presign="{% url 'clips_presign' %}"
         data-save-url="{% url 'clips_caption_save' asset.id %}"
-        data-asset-url="{% url 'clips_asset' asset.id %}">
+        data-asset-url="{% url 'clips_asset' asset.code %}">
     {% csrf_token %}
     <div class="kg-row">
       <button type="button" class="kg-btn kg-btn-sm" id="add-text">+ Add text</button>
@@ -44,7 +44,7 @@
     </div>
     <div class="kg-row builder-publish">
       <button type="submit" class="kg-btn" id="publish-btn">Save caption</button>
-      <a class="kg-btn kg-btn-sm" href="{% url 'clips_asset' asset.id %}">Cancel</a>
+      <a class="kg-btn kg-btn-sm" href="{% url 'clips_asset' asset.code %}">Cancel</a>
     </div>
     <p id="builder-status" class="kg-status" role="status" aria-live="polite"></p>
   </form>

@@ -30,6 +30,8 @@ urlpatterns = [
     path("api/v1/", ninja_api.urls),  # JSON API + Swagger docs at /api/v1/docs (ADR 0011)
     # /metrics — Prometheus scrapes it over the edge net; blocked publicly at the tunnel.
     path("", include("django_prometheus.urls")),
-    path("", include("clips.urls")),
+    # web.urls (healthz/readyz/account/lab) MUST come before clips.urls: the clips /<code> route
+    # matches any 7-char base62 path, which would otherwise swallow /healthz (exactly 7 chars).
     path("", include("web.urls")),
+    path("", include("clips.urls")),
 ]

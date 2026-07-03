@@ -28,6 +28,7 @@ class FinalizeIn(Schema):
 
 class AssetOut(Schema):
     id: str
+    code: str
     title: str
     status: str
     mime: str

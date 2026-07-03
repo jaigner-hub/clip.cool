@@ -20,6 +20,7 @@ import uuid
 import json
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
 from . import search, storage
@@ -400,6 +401,43 @@ def _iso8601_duration(seconds):
     return out
 
 
+_JSONLD_FALLBACK_DESC = "A looping clip on clip.cool — clip a moment from any video."
+
+
+def clip_slug(asset, *, max_words=8, max_len=60):
+    """A keyword slug for a clip's URL, built from the *encoded text in it* — OCR'd words first
+    (the search-by-text differentiator), else the title, else the description. Empty when there's no
+    usable text. Purely cosmetic: the short `code` resolves the clip, so the slug can change freely
+    (re-OCR, edited title) without breaking any link."""
+    from django.utils.text import slugify
+    slug = slugify(asset.ocr_text or asset.title or asset.description or "")
+    if not slug:
+        return ""
+    return "-".join(slug.split("-")[:max_words])[:max_len].strip("-")
+
+
+def clip_url(asset):
+    """Canonical public URL for a clip: /<code>/<slug> when it has text (keyword-rich, what Google
+    indexes), else the bare /<code>. Absolute (pinned to SITE_URL) for sitemap/JSON-LD/canonical."""
+    slug = clip_slug(asset)
+    path = asset.code + ("/" + slug if slug else "")
+    return "%s/%s" % (settings.SITE_URL, path)
+
+
+def _clip_seo_blurb(asset, *, limit=500):
+    """One searchable description for a clip's structured data + sitemap: the AI vision caption plus
+    any burned-in text we OCR'd — so the clip is findable by the *words in it*, not just its title —
+    deduped and clipped. Never empty (falls back to boilerplate) so required schema fields are safe."""
+    parts = []
+    if asset.description and asset.description.strip():
+        parts.append(asset.description.strip())
+    ocr = (asset.ocr_text or "").strip()
+    if ocr and ocr.lower() not in " ".join(parts).lower():
+        parts.append(ocr)
+    blurb = " — ".join(parts) or _JSONLD_FALLBACK_DESC
+    return blurb[:limit]
+
+
 def video_jsonld(asset):
     """schema.org VideoObject for a clip's detail page (Google video rich results / thumbnails), or
     None when not applicable. Only public + ready videos that have both a poster (thumbnailUrl is
@@ -410,19 +448,21 @@ def video_jsonld(asset):
     h264 = asset.renditions.filter(kind=Rendition.Kind.H264).first()
     if not h264:
         return None
-    name = asset.title or "GIF on clip.cool"
-    desc = (asset.description or asset.ocr_text
-            or "A looping clip on clip.cool — clip a moment from any video.").strip()
     data = {
         "@context": "https://schema.org",
         "@type": "VideoObject",
-        "name": name,
-        "description": desc[:500],
+        "name": asset.title or "GIF on clip.cool",
+        "description": _clip_seo_blurb(asset),
         "thumbnailUrl": [storage.public_url(asset.poster_key)],
         "uploadDate": asset.created_at.isoformat(),
         "contentUrl": storage.public_url(h264.r2_key),
-        "url": "%s/%s" % (settings.SITE_URL, asset.id),
+        "url": clip_url(asset),
     }
+    # Burned-in text (OCR) as the video's transcript — the field Google indexes for "find the video
+    # with these words in it", the whole point of search-by-text.
+    ocr = (asset.ocr_text or "").strip()
+    if ocr:
+        data["transcript"] = ocr[:1000]
     dur = _iso8601_duration(asset.duration)
     if dur:
         data["duration"] = dur
@@ -430,6 +470,42 @@ def video_jsonld(asset):
         data["width"] = asset.width
         data["height"] = asset.height
     return data
+
+
+def image_jsonld(asset):
+    """schema.org ImageObject for an image clip's detail page — the image analog of video_jsonld, or
+    None when not applicable (private/unready/non-image/no file). Surfaces the AI caption and any
+    OCR'd burned-in text (`text`) so a meme is discoverable by the words in it. Plain dict."""
+    if (asset.media_type != Asset.MediaType.IMAGE or asset.status != Asset.Status.READY
+            or not asset.is_public):
+        return None
+    url = storage.public_url(asset.poster_key or asset.original_key)
+    if not url:
+        return None
+    data = {
+        "@context": "https://schema.org",
+        "@type": "ImageObject",
+        "name": asset.title or "Meme on clip.cool",
+        "caption": _clip_seo_blurb(asset),
+        "contentUrl": url,
+        "url": clip_url(asset),
+        "uploadDate": asset.created_at.isoformat(),
+    }
+    ocr = (asset.ocr_text or "").strip()
+    if ocr:
+        data["text"] = ocr[:1000]
+    if asset.width and asset.height:
+        data["width"] = asset.width
+        data["height"] = asset.height
+    return data
+
+
+def clip_jsonld(asset):
+    """The right schema.org block for a clip's detail page — VideoObject for videos, ImageObject for
+    images — or None when the clip doesn't qualify. The one entry point the detail view calls."""
+    if asset.media_type == Asset.MediaType.VIDEO:
+        return video_jsonld(asset)
+    return image_jsonld(asset)
 
 
 def autodescribe_asset(asset_id, *, force_title=False):
@@ -609,15 +685,44 @@ def browse_assets(limit=30):
     )
 
 
-def public_clip_sitemap_entries(*, limit=5000):
-    """(id, updated_at) for every indexable public clip, newest first — feeds the XML sitemap.
-    Capped so a runaway catalog can't blow up the response; revisit with sitemap-index paging if we
-    ever cross the limit."""
-    return list(
+def public_clip_sitemap_rows(*, limit=5000):
+    """Rich sitemap rows for every indexable public clip, newest first — feeds clips/sitemap.xml.
+    Each row carries the canonical URL plus Google video/image sitemap-extension metadata: a
+    thumbnail, title, and a searchable description that folds in the OCR'd text (so a clip is
+    discoverable by the words in it), and the media content URL. Capped so a runaway catalog can't
+    blow up the response; revisit with sitemap-index paging if we ever cross the limit."""
+    rows = []
+    assets = (
         Asset.objects.filter(is_public=True, status=Asset.Status.READY)
         .order_by("-updated_at")
-        .values_list("id", "updated_at")[:limit]
+        .prefetch_related("renditions")[:limit]
     )
+    for asset in assets:
+        row = {
+            "loc": clip_url(asset),
+            "lastmod": asset.updated_at.date().isoformat(),
+            "changefreq": "monthly",   # a clip's page is essentially static once published
+            "priority": "0.6",
+        }
+        try:  # media metadata is a nice-to-have — never let a storage hiccup 500 the whole sitemap
+            if asset.media_type == Asset.MediaType.VIDEO and asset.poster_key:
+                h264 = next((r for r in asset.renditions.all() if r.kind == Rendition.Kind.H264), None)
+                if h264:
+                    row["video"] = {
+                        "thumbnail_loc": storage.public_url(asset.poster_key),
+                        "title": (asset.title or "GIF on clip.cool")[:100],
+                        "description": _clip_seo_blurb(asset, limit=2048),
+                        "content_loc": storage.public_url(h264.r2_key),
+                        "duration": int(asset.duration) if asset.duration else None,
+                    }
+            elif asset.media_type == Asset.MediaType.IMAGE:
+                img = storage.public_url(asset.poster_key or asset.original_key)
+                if img:
+                    row["image"] = {"loc": img}
+        except Exception:
+            logger.warning("sitemap: media metadata failed for %s", asset.id, exc_info=True)
+        rows.append(row)
+    return rows
 
 
 def list_template_clips(*, limit=60):
@@ -641,15 +746,27 @@ def list_assets(user, *, limit=40):
     return list(Asset.objects.filter(owner=user)[:limit])
 
 
-def get_public_asset(asset_id):
-    """A ready, public asset for the no-login share page. None if private/missing/not ready."""
-    return Asset.objects.filter(pk=asset_id, is_public=True, status=Asset.Status.READY).first()
+def _ident_q(ident):
+    """Match an asset by its short public `code` OR its UUID pk. Public/share routes pass a code;
+    internal action routes and legacy links pass a UUID — codes are base62 and never parse as a
+    UUID, so the format disambiguates with zero collision risk."""
+    s = str(ident)
+    try:
+        uuid.UUID(s)
+    except (ValueError, AttributeError, TypeError):
+        return Q(code=s)
+    return Q(pk=s)
 
 
-def get_asset_for(user, asset_id):
-    """One asset the user may see/edit (owner, or any for a superuser). None if not found/allowed."""
+def get_public_asset(ident):
+    """A ready, public asset for the no-login share page (by code or UUID). None if private/missing/not ready."""
+    return Asset.objects.filter(_ident_q(ident), is_public=True, status=Asset.Status.READY).first()
+
+
+def get_asset_for(user, ident):
+    """One asset the user may see/edit (owner, or any for a superuser), by code or UUID. None if not found/allowed."""
     qs = Asset.objects.all() if getattr(user, "is_superuser", False) else Asset.objects.filter(owner=user)
-    return qs.filter(pk=asset_id).first()
+    return qs.filter(_ident_q(ident)).first()
 
 
 def delete_asset(user, asset_id):
@@ -827,6 +944,7 @@ def serialize(asset):
     """Asset → dict for the JSON API and the templates."""
     return {
         "id": str(asset.id),
+        "code": asset.code,
         "title": asset.title or "",
         "description": asset.description or "",
         "status": asset.status,

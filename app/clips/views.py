@@ -26,31 +26,40 @@ def library(request):
     return render(request, "clips/library.html", {"active_page": "clips_library", "assets": assets})
 
 
-def asset_detail(request, asset_id):
-    """Canonical clip page (clip.cool/<id>). Public+ready ⇒ anyone (logged out included) — carries
-    OG/Twitter meta so the link unfurls (and autoplays) in chat/social; private/unready ⇒
-    owner/superuser only. Owner-only controls render when can_edit."""
+def asset_detail(request, asset_id, slug=None):
+    """Canonical clip page. Two URLs resolve here: the short /<code> (the shareable link) and the
+    keyword-rich /<code>/<slug> built from the clip's OCR'd text (the one Google indexes). Both
+    serve 200; a stale/wrong slug 301s to the correct one so junk variants don't get indexed. The
+    bare /<code> stays 200 (its canonical <link> points at the slug URL). Public+ready ⇒ anyone;
+    private/unready ⇒ owner/superuser."""
     asset = services.get_public_asset(asset_id)   # public + ready ⇒ anyone
     if asset is None and request.user.is_authenticated:
         asset = services.get_asset_for(request.user, asset_id)   # else owner/superuser (incl. private/unready)
     if asset is None:
         raise Http404("Clip not found.")
+    canonical_slug = services.clip_slug(asset)
+    # A slug was supplied but doesn't match the current text → 301 to the canonical slug URL.
+    if slug is not None and canonical_slug and slug != canonical_slug:
+        return redirect("clips_asset_slug", asset_id=asset.code, slug=canonical_slug, permanent=True)
     u = request.user
     can_edit = u.is_authenticated and (u.is_superuser or asset.owner_id == u.id)
     a = services.serialize(asset)
     sources = services.video_sources(asset) if asset.media_type == Asset.MediaType.VIDEO else []
     mp4_url = next((s["url"] for s in sources if s["kind"] == "h264"), a.get("url"))
-    # VideoObject JSON-LD (Google video rich results). Escape <, >, & so a title/description can't
-    # break out of the <script> block — the same escaping Django's json_script filter applies.
-    jsonld = services.video_jsonld(asset)
-    video_jsonld = (
+    # schema.org JSON-LD (VideoObject for videos, ImageObject for images) — Google rich results +
+    # the search-by-text signal (OCR'd words ride along as transcript/text). Escape <, >, & so a
+    # title/description can't break out of the <script> block — same escaping as json_script.
+    jsonld = services.clip_jsonld(asset)
+    clip_jsonld = (
         json.dumps(jsonld).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
         if jsonld else ""
     )
     return render(request, "clips/detail.html", {
         "active_page": "clips_library", "asset": asset, "a": a, "sources": sources,
         "can_edit": can_edit, "mp4_url": mp4_url, "page_url": request.build_absolute_uri(),
-        "video_jsonld": video_jsonld,
+        "clip_jsonld": clip_jsonld,
+        # Override the context-processor default so canonical/OG point at the keyword-rich /<code>/<slug>.
+        "canonical_url": services.clip_url(asset),
     })
 
 
@@ -84,7 +93,7 @@ def asset_edit(request, asset_id):
             tags=tags,
             is_public="is_public" in request.POST,   # checkbox: present ⇒ public
         )
-        return redirect("clips_asset", asset_id=asset_id)
+        return redirect("clips_asset", asset_id=asset.code)
     return render(request, "clips/edit.html", {
         "active_page": "clips_library", "asset": asset, "a": services.serialize(asset),
         "tags_str": ", ".join(asset.tags or []),
@@ -94,9 +103,10 @@ def asset_edit(request, asset_id):
 @login_required
 @require_POST
 def asset_regenerate(request, asset_id):
-    if services.regenerate_asset(request.user, asset_id) is None:
+    asset = services.regenerate_asset(request.user, asset_id)
+    if asset is None:
         raise Http404("Clip not found.")
-    return redirect("clips_asset", asset_id=asset_id)
+    return redirect("clips_asset", asset_id=asset.code)
 
 
 @login_required
@@ -296,6 +306,18 @@ def template_gallery(request):
     })
 
 
+def legacy_redirect(request, asset_id, *, to):
+    """301 an old full-UUID share link (/<uuid>, /<uuid>.gif, …) to its short /<code> equivalent, so
+    links already shared or indexed keep working after the switch to short codes. `to` is the target
+    route name; the asset is resolved by UUID (public first, then owner/superuser)."""
+    asset = services.get_public_asset(asset_id)
+    if asset is None and request.user.is_authenticated:
+        asset = services.get_asset_for(request.user, asset_id)
+    if asset is None:
+        raise Http404("Clip not found.")
+    return redirect(to, asset_id=asset.code, permanent=True)
+
+
 def robots_txt(request):
     """robots.txt — allow the public surfaces, keep crawlers out of auth/admin/API/per-user actions,
     and advertise the sitemap. Paths are absolute so they're host-independent."""
@@ -322,17 +344,12 @@ def sitemap_xml(request):
     every indexable public clip. URLs are pinned to SITE_URL so they match the canonical host."""
     base = settings.SITE_URL
     urls = [
-        {"loc": base + reverse("clips_search"), "priority": "1.0"},
-        {"loc": base + reverse("clips_browse"), "priority": "0.8"},
-        {"loc": base + reverse("clips_templates"), "priority": "0.7"},
-        {"loc": base + reverse("clips_about"), "priority": "0.5"},
+        {"loc": base + reverse("clips_search"), "priority": "1.0", "changefreq": "daily"},
+        {"loc": base + reverse("clips_browse"), "priority": "0.8", "changefreq": "daily"},
+        {"loc": base + reverse("clips_templates"), "priority": "0.7", "changefreq": "weekly"},
+        {"loc": base + reverse("clips_about"), "priority": "0.5", "changefreq": "monthly"},
     ]
-    for asset_id, updated_at in services.public_clip_sitemap_entries():
-        urls.append({
-            "loc": base + reverse("clips_asset", args=[asset_id]),
-            "lastmod": updated_at.date().isoformat(),
-            "priority": "0.6",
-        })
+    urls += services.public_clip_sitemap_rows()
     return render(request, "clips/sitemap.xml", {"urls": urls}, content_type="application/xml")
 
 

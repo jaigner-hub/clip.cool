@@ -1,29 +1,54 @@
-from django.urls import path
+from django.urls import path, register_converter
 from django.views.generic import RedirectView
 
 from . import views
+
+
+class CodeConverter:
+    """Matches a clip's short public code (base62, 7 chars) — narrow enough that a bare /<code>
+    route can't swallow real top-level paths (they have dots/slashes or a different length)."""
+    regex = r"[0-9A-Za-z]{7}"
+
+    def to_python(self, value):
+        return value
+
+    def to_url(self, value):
+        return value
+
+
+register_converter(CodeConverter, "code")
 
 urlpatterns = [
     # Search IS the root (the discovery front door) — not a redirect.
     path("", views.search_page, name="clips_search"),
 
-    # SEO endpoints (root-level by convention; the <uuid> route below only matches UUIDs).
+    # SEO endpoints (root-level by convention; the routes below only match dot-free short codes).
     path("robots.txt", views.robots_txt, name="clips_robots"),
     path("sitemap.xml", views.sitemap_xml, name="clips_sitemap"),
 
-    # Canonical root URLs for a clip (short + shareable). One page per clip: humans get the full
-    # page, chat/social unfurl off its OG/Twitter meta. .gif/.mp4 are direct-rendition links.
-    path("<uuid:asset_id>", views.asset_detail, name="clips_asset"),
-    path("<uuid:asset_id>.gif", views.public_clip_gif, name="clip_public_gif"),
-    path("<uuid:asset_id>.mp4", views.public_clip_mp4, name="clip_public_mp4"),
-    path("<uuid:asset_id>/download", views.clip_download, name="clip_download"),
-    path("<uuid:asset_id>/download.gif", views.clip_download_gif, name="clip_download_gif"),
+    # Canonical root URLs for a clip — short + shareable (clip.cool/<code>). One page per clip:
+    # humans get the full page, chat/social unfurl off its OG/Twitter meta. .gif/.mp4 are direct
+    # rendition links. The UUID pk still backs internal lookups; only the public URL uses the code.
+    path("<code:asset_id>", views.asset_detail, name="clips_asset"),
+    path("<code:asset_id>.gif", views.public_clip_gif, name="clip_public_gif"),
+    path("<code:asset_id>.mp4", views.public_clip_mp4, name="clip_public_mp4"),
+    path("<code:asset_id>/download", views.clip_download, name="clip_download"),
+    path("<code:asset_id>/download.gif", views.clip_download_gif, name="clip_download_gif"),
+    # Keyword-rich alias: /<code>/<slug-from-OCR-text>. Same page as the bare /<code> (the code
+    # resolves it); the slug is what Google indexes. MUST come after /download so that isn't read
+    # as a slug. A wrong/stale slug 301s to the canonical one in the view.
+    path("<code:asset_id>/<slug:slug>", views.asset_detail, name="clips_asset_slug"),
 
-    # 301 from the old paths so links already shared keep working.
-    path("c/<uuid:asset_id>/", RedirectView.as_view(pattern_name="clips_asset", permanent=True), name="clip_public"),
-    path("c/<uuid:asset_id>.gif", RedirectView.as_view(pattern_name="clip_public_gif", permanent=True)),
-    path("c/<uuid:asset_id>.mp4", RedirectView.as_view(pattern_name="clip_public_mp4", permanent=True)),
-    path("clips/asset/<uuid:asset_id>/", RedirectView.as_view(pattern_name="clips_asset", permanent=True)),
+    # 301 the old full-UUID paths (already shared / indexed) to the short code URL.
+    path("<uuid:asset_id>", views.legacy_redirect, {"to": "clips_asset"}),
+    path("<uuid:asset_id>.gif", views.legacy_redirect, {"to": "clip_public_gif"}),
+    path("<uuid:asset_id>.mp4", views.legacy_redirect, {"to": "clip_public_mp4"}),
+    path("<uuid:asset_id>/download", views.legacy_redirect, {"to": "clip_download"}),
+    path("<uuid:asset_id>/download.gif", views.legacy_redirect, {"to": "clip_download_gif"}),
+    path("c/<uuid:asset_id>/", views.legacy_redirect, {"to": "clips_asset"}, name="clip_public"),
+    path("c/<uuid:asset_id>.gif", views.legacy_redirect, {"to": "clip_public_gif"}),
+    path("c/<uuid:asset_id>.mp4", views.legacy_redirect, {"to": "clip_public_mp4"}),
+    path("clips/asset/<uuid:asset_id>/", views.legacy_redirect, {"to": "clips_asset"}),
 
     path("clips/", views.library, name="clips_library"),
     path("clips/record/", views.record_page, name="clips_record"),

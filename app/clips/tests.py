@@ -341,7 +341,7 @@ class PublicSharePageTests(TestCase):
         # so chat/social unfurls (it replaces the old /c/<id> share page).
         a = Asset.objects.create(owner=self.user, original_key="o.png", media_type=Asset.MediaType.IMAGE,
                                  status=Asset.Status.READY, is_public=True, title="Shared")
-        r = self.client.get(reverse("clips_asset", args=[a.id]))   # no login
+        r = self.client.get(reverse("clips_asset", args=[a.code]))   # no login
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, 'property="og:title"')   # OG meta for unfurls
         self.assertContains(r, "Shared")
@@ -355,15 +355,51 @@ class PublicSharePageTests(TestCase):
                                  status=Asset.Status.READY, is_public=True)
         r = self.client.get(reverse("clip_public", args=[a.id]))
         self.assertEqual(r.status_code, 301)
-        self.assertEqual(r["Location"], reverse("clips_asset", args=[a.id]))
+        self.assertEqual(r["Location"], reverse("clips_asset", args=[a.code]))
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_legacy_uuid_url_301s_to_short_code(self, mock_url):
+        # WHY: URLs are now the short /<code>; the full-UUID links already shared/indexed must 301 to
+        # it (not 404) so nothing breaks and Google consolidates on the short canonical.
+        a = Asset.objects.create(owner=self.user, original_key="o.png", media_type=Asset.MediaType.IMAGE,
+                                 status=Asset.Status.READY, is_public=True)
+        r = self.client.get(f"/{a.id}")   # old full-UUID path
+        self.assertEqual(r.status_code, 301)
+        self.assertEqual(r["Location"], f"/{a.code}")
+        # and the short URL itself serves the page
+        self.assertEqual(self.client.get(f"/{a.code}").status_code, 200)
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_text_slug_url_serves_and_is_canonical(self, mock_url):
+        # WHY: a second, keyword-rich URL from the clip's OCR'd text (/<code>/<slug>) is what Google
+        # indexes; the bare /<code> stays a valid short share link but points its canonical at it.
+        a = Asset.objects.create(owner=self.user, original_key="o.png", media_type=Asset.MediaType.IMAGE,
+                                 status=Asset.Status.READY, is_public=True, ocr_text="Gotta Go Fast!!")
+        slug = services.clip_slug(a)
+        self.assertEqual(slug, "gotta-go-fast")
+        # the text URL serves the page
+        self.assertEqual(self.client.get(f"/{a.code}/{slug}").status_code, 200)
+        # the bare short URL also serves, and its canonical points at the keyword-rich URL
+        r = self.client.get(f"/{a.code}")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, f'rel="canonical" href="https://clip.cool/{a.code}/{slug}"')
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_wrong_text_slug_301s_to_canonical(self, mock_url):
+        # WHY: a stale/hand-edited slug must consolidate to the real one (no duplicate-content sprawl).
+        a = Asset.objects.create(owner=self.user, original_key="o.png", media_type=Asset.MediaType.IMAGE,
+                                 status=Asset.Status.READY, is_public=True, ocr_text="Gotta Go Fast")
+        r = self.client.get(f"/{a.code}/some-old-slug")
+        self.assertEqual(r.status_code, 301)
+        self.assertEqual(r["Location"], f"/{a.code}/gotta-go-fast")
 
     def test_private_clip_is_404(self):
         a = Asset.objects.create(owner=self.user, original_key="o.png", status=Asset.Status.READY, is_public=False)
-        self.assertEqual(self.client.get(reverse("clips_asset", args=[a.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("clips_asset", args=[a.code])).status_code, 404)
 
     def test_unready_clip_is_404(self):
         a = Asset.objects.create(owner=self.user, original_key="o.png", status=Asset.Status.TRANSCODING, is_public=True)
-        self.assertEqual(self.client.get(reverse("clips_asset", args=[a.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("clips_asset", args=[a.code])).status_code, 404)
 
 
 class SeoTests(TestCase):
@@ -392,7 +428,7 @@ class SeoTests(TestCase):
         # WHY: a video clip page is "<title> GIF" (Giphy/Tenor convention) so it ranks for that query.
         a = Asset.objects.create(owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
                                  status=Asset.Status.READY, is_public=True, title="Dancing Cat")
-        self.assertContains(self.client.get(reverse("clips_asset", args=[a.id])),
+        self.assertContains(self.client.get(reverse("clips_asset", args=[a.code])),
                             "<title>Dancing Cat GIF · clip.cool</title>", html=False)
 
     @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
@@ -411,7 +447,7 @@ class SeoTests(TestCase):
         self.assertEqual(data["duration"], "PT4S")
         self.assertIn("uploadDate", data)
         # The page carries the ld+json data block.
-        r = self.client.get(reverse("clips_asset", args=[a.id]))
+        r = self.client.get(reverse("clips_asset", args=[a.code]))
         self.assertContains(r, 'type="application/ld+json"')
         self.assertContains(r, '"VideoObject"')
 
@@ -423,7 +459,7 @@ class SeoTests(TestCase):
                                  media_type=Asset.MediaType.VIDEO, status=Asset.Status.READY,
                                  is_public=True, title="evil</script><b>x")
         Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="renditions/x/h264.mp4", mime="video/mp4")
-        r = self.client.get(reverse("clips_asset", args=[a.id]))
+        r = self.client.get(reverse("clips_asset", args=[a.code]))
         self.assertNotContains(r, "</script><b>x")   # the raw breakout never reaches the HTML
         self.assertContains(r, "\\u003c/script")      # escaped instead
 
@@ -432,6 +468,56 @@ class SeoTests(TestCase):
         a = Asset.objects.create(owner=self.user, original_key="o.png", poster_key="posters/x.webp",
                                  media_type=Asset.MediaType.IMAGE, status=Asset.Status.READY, is_public=True)
         self.assertIsNone(services.video_jsonld(a))
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_video_jsonld_carries_ocr_as_transcript(self, mock_url):
+        # WHY: the search-by-text differentiator — the words burned into a clip must reach Google as
+        # the video's transcript so the clip is findable by them, not just by its title.
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4", poster_key="posters/x.webp",
+                                 media_type=Asset.MediaType.VIDEO, status=Asset.Status.READY,
+                                 is_public=True, title="Reaction", description="a cat", ocr_text="I AM SPEED")
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="renditions/x/h264.mp4", mime="video/mp4")
+        data = services.video_jsonld(a)
+        self.assertEqual(data["transcript"], "I AM SPEED")
+        self.assertIn("I AM SPEED", data["description"])   # OCR also folded into the description
+        self.assertIn("a cat", data["description"])
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_image_clip_emits_imageobject_jsonld_with_ocr_text(self, mock_url):
+        # WHY: image memes need structured data too — otherwise their OCR'd text has no Google signal.
+        a = Asset.objects.create(owner=self.user, original_key="o.png", poster_key="posters/x.webp",
+                                 media_type=Asset.MediaType.IMAGE, status=Asset.Status.READY,
+                                 is_public=True, title="Drake", ocr_text="nah / yeah")
+        data = services.image_jsonld(a)
+        self.assertEqual(data["@type"], "ImageObject")
+        self.assertEqual(data["contentUrl"], "https://cdn/posters/x.webp")
+        self.assertEqual(data["text"], "nah / yeah")
+        # The page carries the ImageObject block via the shared dispatcher.
+        r = self.client.get(reverse("clips_asset", args=[a.code]))
+        self.assertContains(r, '"ImageObject"')
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_sitemap_video_clip_has_video_extension_with_ocr(self, mock_url):
+        # WHY: the Google video sitemap extension surfaces the thumbnail + text (incl. OCR) per clip.
+        from clips.models import Rendition
+        a = Asset.objects.create(owner=self.user, original_key="o.mp4", poster_key="posters/x.webp",
+                                 media_type=Asset.MediaType.VIDEO, status=Asset.Status.READY,
+                                 is_public=True, title="Speedy", ocr_text="GOTTA GO FAST", duration=3.0)
+        Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="renditions/x/h264.mp4", mime="video/mp4")
+        body = self.client.get("/sitemap.xml").content.decode()
+        self.assertIn("<video:video>", body)
+        self.assertIn("<video:thumbnail_loc>https://cdn/posters/x.webp</video:thumbnail_loc>", body)
+        self.assertIn("GOTTA GO FAST", body)   # OCR text rides in <video:description>
+        self.assertIn("<video:content_loc>https://cdn/renditions/x/h264.mp4</video:content_loc>", body)
+
+    @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
+    def test_sitemap_image_clip_has_image_extension(self, mock_url):
+        # WHY: image clips advertise their file via the Google image sitemap extension.
+        a = Asset.objects.create(owner=self.user, original_key="o.png", poster_key="posters/x.webp",
+                                 media_type=Asset.MediaType.IMAGE, status=Asset.Status.READY, is_public=True)
+        body = self.client.get("/sitemap.xml").content.decode()
+        self.assertIn("<image:image><image:loc>https://cdn/posters/x.webp</image:loc></image:image>", body)
 
     def test_robots_allows_crawl_and_points_at_sitemap(self):
         # WHY: a missing/blocking robots.txt is the classic "site won't index" foot-gun.
@@ -451,8 +537,8 @@ class SeoTests(TestCase):
         self.assertEqual(r["content-type"], "application/xml")
         body = r.content.decode()
         self.assertIn("https://clip.cool/about/", body)
-        self.assertIn(f"https://clip.cool/{pub.id}", body)
-        self.assertNotIn(str(priv.id), body)
+        self.assertIn(f"https://clip.cool/{pub.code}", body)
+        self.assertNotIn(priv.code, body)
 
 
 class PublicMp4LinkTests(TestCase):
@@ -465,14 +551,14 @@ class PublicMp4LinkTests(TestCase):
         a = Asset.objects.create(owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
                                  status=Asset.Status.READY, is_public=True)
         Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="r/h264.mp4", mime="video/mp4")
-        r = self.client.get(reverse("clip_public_mp4", args=[a.id]))   # no login
+        r = self.client.get(reverse("clip_public_mp4", args=[a.code]))   # no login
         self.assertEqual(r.status_code, 302)
         self.assertEqual(r["Location"], "https://cdn/r/h264.mp4")
 
     def test_mp4_link_private_404(self):
         a = Asset.objects.create(owner=self.user, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
                                  status=Asset.Status.READY, is_public=False)
-        self.assertEqual(self.client.get(reverse("clip_public_mp4", args=[a.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("clip_public_mp4", args=[a.code])).status_code, 404)
 
 
 class PublicGifLinkTests(TestCase):
@@ -483,7 +569,7 @@ class PublicGifLinkTests(TestCase):
         a = Asset.objects.create(owner=u, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
                                  status=Asset.Status.READY, is_public=True)
         Rendition.objects.create(asset=a, kind=Rendition.Kind.GIF, r2_key="r/preview.gif", mime="image/gif")
-        r = self.client.get(reverse("clip_public_gif", args=[a.id]))   # no login
+        r = self.client.get(reverse("clip_public_gif", args=[a.code]))   # no login
         self.assertEqual(r.status_code, 302)
         self.assertEqual(r["Location"], "https://cdn/r/preview.gif")
 
@@ -491,7 +577,7 @@ class PublicGifLinkTests(TestCase):
         u = User.objects.create_user("g2@example.com", "g2@example.com")
         a = Asset.objects.create(owner=u, original_key="o.mp4", media_type=Asset.MediaType.VIDEO,
                                  status=Asset.Status.READY, is_public=True)
-        self.assertEqual(self.client.get(reverse("clip_public_gif", args=[a.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("clip_public_gif", args=[a.code])).status_code, 404)
 
 
 class PublicBrowseTests(TestCase):
@@ -515,7 +601,7 @@ class PublicBrowseTests(TestCase):
     def test_public_detail_visible_logged_out_without_edit_controls(self, mock_url):
         u = User.objects.create_user("p@example.com", "p@example.com")
         a = self._img(u, is_public=True, title="Pub")
-        r = self.client.get(reverse("clips_asset", args=[a.id]))   # no login
+        r = self.client.get(reverse("clips_asset", args=[a.code]))   # no login
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "Pub")
         self.assertNotContains(r, "Regenerate AI labels")          # owner-only, hidden
@@ -523,14 +609,14 @@ class PublicBrowseTests(TestCase):
     def test_private_detail_404_logged_out(self):
         u = User.objects.create_user("p2@example.com", "p2@example.com")
         a = self._img(u, is_public=False)
-        self.assertEqual(self.client.get(reverse("clips_asset", args=[a.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("clips_asset", args=[a.code])).status_code, 404)
 
     @patch("clips.services.storage.public_url", side_effect=lambda k: "https://cdn/" + (k or ""))
     def test_owner_sees_edit_controls(self, mock_url):
         u = User.objects.create_user("p3@example.com", "p3@example.com")
         a = self._img(u, is_public=True)
         self.client.force_login(u)
-        r = self.client.get(reverse("clips_asset", args=[a.id]))
+        r = self.client.get(reverse("clips_asset", args=[a.code]))
         self.assertContains(r, "Regenerate AI labels")            # owner sees controls
 
 
@@ -574,7 +660,7 @@ class DownloadLinkTests(TestCase):
         u = User.objects.create_user("d@example.com", "d@example.com")
         a = Asset.objects.create(owner=u, original_key="originals/x.gif", media_type=Asset.MediaType.VIDEO,
                                  status=Asset.Status.READY, is_public=True, title="My Clip")
-        r = self.client.get(reverse("clip_download", args=[a.id]))   # no login (public)
+        r = self.client.get(reverse("clip_download", args=[a.code]))   # no login (public)
         self.assertEqual(r.status_code, 302)
         self.assertEqual(r["Location"], "https://r2/dl?response-content-disposition=attachment")
         # WHY: forced filename is the clip title + original extension (sanitized), for a sensible save.
@@ -583,7 +669,7 @@ class DownloadLinkTests(TestCase):
     def test_download_private_404_logged_out(self):
         u = User.objects.create_user("d2@example.com", "d2@example.com")
         a = Asset.objects.create(owner=u, original_key="originals/x.gif", status=Asset.Status.READY, is_public=False)
-        self.assertEqual(self.client.get(reverse("clip_download", args=[a.id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("clip_download", args=[a.code])).status_code, 404)
 
     @patch("clips.services.storage.presign_get", return_value="https://r2/dl")
     def test_video_download_serves_the_mp4_not_the_webm_original(self, mock_presign):
@@ -595,7 +681,7 @@ class DownloadLinkTests(TestCase):
         a = Asset.objects.create(owner=u, original_key="originals/x.webm", media_type=Asset.MediaType.VIDEO,
                                  status=Asset.Status.READY, is_public=True, title="Clip")
         Rendition.objects.create(asset=a, kind=Rendition.Kind.H264, r2_key="renditions/x/h264.mp4", mime="video/mp4")
-        self.client.get(reverse("clip_download", args=[a.id]))
+        self.client.get(reverse("clip_download", args=[a.code]))
         self.assertEqual(mock_presign.call_args.args[0], "renditions/x/h264.mp4")
         self.assertEqual(mock_presign.call_args.kwargs["filename"], "Clip.mp4")
 

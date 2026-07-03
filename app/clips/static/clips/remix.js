@@ -84,7 +84,7 @@
       if (!res.ok) { failed("Couldn't create the clip (" + res.status + "): " + (await res.text())); return; }
       const asset = await res.json();
       setStatus("Created — opening your clip…", "ok");
-      window.location.href = "/clips/asset/" + encodeURIComponent(asset.id) + "/";
+      window.location.href = "/" + encodeURIComponent(asset.code);   // short clip URL (clip.cool/<code>)
     } catch (err) {
       failed("Error: " + err);
     }

@@ -79,7 +79,11 @@ class CSPTemplateHygieneTests(TestCase):
         # execute under script-src 'self' 'nonce-…'. External <script src> need no nonce.
         def offends(line):
             return any(
-                "src=" not in tag and "nonce=" not in tag
+                "src=" not in tag
+                and "nonce=" not in tag
+                # A ld+json block is data, not executable script — the browser never runs it, so
+                # script-src doesn't apply (see clips/detail.html's VideoObject/ImageObject JSON-LD).
+                and "application/ld+json" not in tag
                 for tag in re.findall(r"<script\b[^>]*>", line)
             )
         offenders = self._scan(offends)

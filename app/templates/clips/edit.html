@@ -4,7 +4,7 @@
 {% block title %}Edit · clip.cool{% endblock %}
 {% block app_content %}
 <div class="kg-page-head">
-  <a class="kg-acct-link" href="{% url 'clips_asset' asset.id %}">← Back to clip</a>
+  <a class="kg-acct-link" href="{% url 'clips_asset' asset.code %}">← Back to clip</a>
   <h1 class="kg-title">Edit clip</h1>
 </div>
 
@@ -36,7 +36,7 @@
     </div>
     <div class="kg-row">
       <button type="submit" class="kg-btn">Save</button>
-      <a class="kg-btn kg-btn-sm" href="{% url 'clips_asset' asset.id %}">Cancel</a>
+      <a class="kg-btn kg-btn-sm" href="{% url 'clips_asset' asset.code %}">Cancel</a>
     </div>
   </form>
 </div>

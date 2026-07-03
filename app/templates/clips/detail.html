@@ -1,8 +1,8 @@
 {% extends "app_base.html" %}
 {% load static %}
 {% block head %}<link rel="stylesheet" href="{% static 'clips/clips.css' %}">
-{# schema.org VideoObject (Google video rich results). ld+json is a data block, exempt from script-src — no nonce. Pre-escaped in the view. #}
-{% if video_jsonld %}<script type="application/ld+json">{{ video_jsonld|safe }}</script>{% endif %}{% endblock %}
+{# schema.org VideoObject/ImageObject (Google rich results + search-by-text). ld+json is a data block, exempt from script-src — no nonce. Pre-escaped in the view. #}
+{% if clip_jsonld %}<script type="application/ld+json">{{ clip_jsonld|safe }}</script>{% endif %}{% endblock %}
 {# OG/Twitter — replaces base.html's default site card so the link unfurls (and autoplays) in chat. Private clips fall back to the default via block.super (no leak). #}
 {% block social_meta %}
 {% if a.is_public %}
@@ -99,10 +99,10 @@
       {% endif %}
       {# Downloads: GIF is the primary save for a video; MP4 + raw source secondary; image = one file. #}
       {% if a.media_type == 'video' and asset.status == 'ready' %}
-      <a class="kg-btn kg-btn-sm" href="{% url 'clip_download_gif' asset.id %}">Download GIF ↓</a>
-      <a class="kg-acct-link" href="{% url 'clip_download' asset.id %}">Download MP4 ↓</a>
+      <a class="kg-btn kg-btn-sm" href="{% url 'clip_download_gif' asset.code %}">Download GIF ↓</a>
+      <a class="kg-acct-link" href="{% url 'clip_download' asset.code %}">Download MP4 ↓</a>
       {% else %}
-      <a class="kg-btn kg-btn-sm" href="{% url 'clip_download' asset.id %}">Download ↓</a>
+      <a class="kg-btn kg-btn-sm" href="{% url 'clip_download' asset.code %}">Download ↓</a>
       {% endif %}
       <a class="kg-acct-link" href="{{ a.url }}" target="_blank" rel="noopener">Original file ↗</a>
     </div>
@@ -112,7 +112,7 @@
       <div class="clip-share-item">
         <label for="share-url">Page link <span class="kg-muted">— preview/play button in chat</span></label>
         <div class="clip-share-row">
-          <input type="text" id="share-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clips_asset' asset.id %}">
+          <input type="text" id="share-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clips_asset' asset.code %}">
           <button type="button" class="kg-btn kg-btn-sm" data-copy="#share-url">Copy</button>
         </div>
       </div>
@@ -120,7 +120,7 @@
       <div class="clip-share-item">
         <label for="gif-url">GIF link <span class="kg-muted">— autoplays + loops in Discord/Slack</span></label>
         <div class="clip-share-row">
-          <input type="text" id="gif-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public_gif' asset.id %}">
+          <input type="text" id="gif-url" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'clip_public_gif' asset.code %}">
           <button type="button" class="kg-btn kg-btn-sm" data-copy="#gif-url">Copy</button>
         </div>
       </div>

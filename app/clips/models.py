@@ -6,10 +6,22 @@ searchable fields (title, OCR'd text, tags) — see clips/search.py. The image s
 height/mime/poster/ocr_text in the worker (clips.services.process_asset); video renditions come
 later with the transcode tier.
 """
+import secrets
+import string
 import uuid
 
 from django.conf import settings
 from django.db import models
+
+# Short public URL code: base62 (0-9a-zA-Z), 7 chars ⇒ ~3.5e12 space, so random codes effectively
+# never collide at meme scale. The UUID pk stays the internal id + R2 namespace; `code` is only what
+# rides in shareable URLs (clip.cool/<code>) to keep links short.
+_CODE_ALPHABET = string.digits + string.ascii_lowercase + string.ascii_uppercase
+_CODE_LEN = 7
+
+
+def gen_code():
+    return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LEN))
 
 
 class Asset(models.Model):
@@ -26,6 +38,9 @@ class Asset(models.Model):
     # UUID primary key: it doubles as the public id and the basis of the R2 object keys, so it must
     # be unguessable and stable (not a sequential int).
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # Short, unguessable public URL slug (base62). Shown in shareable links (clip.cool/<code>);
+    # the UUID pk still backs internal lookups + R2 keys. Unique + indexed for the by-code route.
+    code = models.CharField(max_length=16, unique=True, default=gen_code, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="assets"
     )
