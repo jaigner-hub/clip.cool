@@ -51,9 +51,12 @@ app_otel_endpoint: "http://alloy:4317"
 app_otel_sample_rate: "1.0"
 
 # --- Cloudflare R2 object storage (docs/architecture.md) ---
-# ALL R2 config lives in stash under clip/web/* (AUTO mode → app .env): R2_ACCESS_KEY_ID,
-# R2_SECRET_ACCESS_KEY, R2_S3_API_ENDPOINT, R2_BUCKET_NAME, R2_API_TOKEN, and optional
-# R2_PUBLIC_BASE. Nothing R2 is templated here — see compose.yml.j2's x-app-env passthrough.
+# R2 SECRETS live in stash under clip/web/* (AUTO mode → app .env): R2_ACCESS_KEY_ID,
+# R2_SECRET_ACCESS_KEY, R2_S3_API_ENDPOINT, R2_BUCKET_NAME, R2_API_TOKEN — passed through in
+# compose.yml.j2's x-app-env. The public CDN delivery domain below is NOT a secret (it lands in
+# page HTML / the sitemap / the CSP), so it's an Ansible var, templated straight into compose.
+# Empty ⇒ the app serves short-lived presigned GET URLs off the S3 endpoint instead.
+clip_web_r2_public_base: "https://media.clip.cool"
 
 # --- Typesense search (docs/architecture.md) ---
 # Single instance on vent.dog (playbooks/typesense.yml, hosts: primary). vent.dog's own app reaches

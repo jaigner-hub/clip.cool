@@ -73,11 +73,14 @@ wait on the `clip.cool` apex DNS. This unblocks the whole edge end-to-end; the a
   URIs realigned from `clip.cool` back to `app.vent.dog`. **No `cloudflare`/`cloudflared`/`drain`/
   `observability` changes** (they already use `app.vent.dog`).
 - **Cloudflare R2** — wired into the app (`clips/storage.py`, boto3, presigned direct-to-bucket
-  upload + public/presigned delivery). Config is **all in stash** under `clip/web/*`:
-  `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_S3_API_ENDPOINT`, `R2_BUCKET_NAME`, `R2_API_TOKEN`,
-  and optional `R2_PUBLIC_BASE` (the `pub-….r2.dev`/CDN URL; empty ⇒ short-lived presigned GETs).
-  compose `x-app-env` passes them through to web + worker. Bucket creation + CORS (allow `PUT` from
-  `https://app.vent.dog`) is a one-time Cloudflare step (account-level — not blocked by the apex).
+  upload + public/presigned delivery). R2 **secrets** live in stash under `clip/web/*`:
+  `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_S3_API_ENDPOINT`, `R2_BUCKET_NAME`, `R2_API_TOKEN`
+  (compose `x-app-env` passes them through to web + worker). The **public** delivery base is NOT a
+  secret (it lands in page HTML / the sitemap / the CSP), so it's an Ansible var
+  `clip_web_r2_public_base` (= `https://media.clip.cool`, a Cloudflare R2 **custom domain** bound to
+  the bucket → proxied + CDN-cached, zero egress; empty ⇒ short-lived presigned GETs). The old
+  `pub-….r2.dev` dev URL (rate-limited, not for production) is retired. Bucket creation + CORS
+  (allow `PUT` from the app origin) + the custom-domain binding are one-time Cloudflare steps.
 - **Typesense** — new `roles/typesense` + `playbooks/typesense.yml` (single instance on `primary`;
   on `keygrip-edge` and published on the box tailnet IP so `vent.dog2` reaches it cross-box, like
   pg-exporter). Server key `vault_typesense_api_key` (SOPS); the **same value** is in stash as
