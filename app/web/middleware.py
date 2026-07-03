@@ -20,6 +20,11 @@ class CSPMiddleware:
     def __call__(self, request):
         request.csp_nonce = secrets.token_urlsafe(16)
         response = self.get_response(request)
+        # Data endpoints (sitemap/robots) carry NO CSP: a strict style-src/script-src blocks the
+        # browser's built-in XML pretty-printer, so /sitemap.xml would render as raw text instead
+        # of the collapsible tree. These serve escaped, machine-readable data — no active content.
+        if request.path in getattr(settings, "CSP_EXEMPT_PATHS", []):
+            return response
         # The Swagger UI explorer (/api/v1/docs) self-hosts its JS but injects inline styles;
         # relax CSP ONLY on those paths. Every real app page stays strict (no escape hatches).
         relaxed = any(

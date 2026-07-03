@@ -137,6 +137,15 @@ class CSPTests(TestCase):
         resp = self.client.get(reverse("clips_search"))
         self.assertIn("Content-Security-Policy", resp.headers)
 
+    def test_sitemap_and_robots_are_csp_exempt(self):
+        # WHY: a strict style-src/script-src blocks the browser's built-in XML pretty-printer,
+        # so a CSP header makes /sitemap.xml render as a raw wall of text instead of the
+        # collapsible tree. These are escaped, machine-readable data endpoints (no active
+        # content), so they carry NO CSP at all.
+        for name in ("clips_sitemap", "clips_robots"):
+            resp = self.client.get(reverse(name))
+            self.assertNotIn("Content-Security-Policy", resp.headers, name)
+
 
 class SecurityHeaderTests(TestCase):
     """Defense-in-depth headers must mirror the static marketing/portal `_headers`.

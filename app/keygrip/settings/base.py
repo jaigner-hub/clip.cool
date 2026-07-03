@@ -189,6 +189,11 @@ KC_ADMIN_CLIENT_SECRET = env("KC_ADMIN_CLIENT_SECRET", "")
 # Strict CSP is global; the Swagger UI explorer self-hosts its JS but injects inline styles,
 # so relax CSP ONLY on the docs path. Every real app page stays strict.
 CSP_RELAXED_PREFIXES = ["/api/v1/docs"]
+# Machine-readable data endpoints (no HTML, can't host active content) get NO CSP header at all.
+# A strict style-src/script-src blocks the browser's built-in XML pretty-printer (inline
+# <style>/<script>), so /sitemap.xml renders as a raw wall of text instead of the collapsible
+# tree — see web/middleware.py. robots.txt is text/plain (CSP is moot) but exempted for parity.
+CSP_EXEMPT_PATHS = ["/sitemap.xml", "/robots.txt"]
 
 # --- clip.cool media: Cloudflare R2 (storage) + Typesense (search) (docs/architecture.md) ---
 # All from env (ultimately stash clip/web/*). Empty ⇒ the storage/search helpers raise a clear
