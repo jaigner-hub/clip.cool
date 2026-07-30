@@ -63,8 +63,18 @@ etcd_peer_port: 2380
 #     measured 19.6s that way vs 0.1s once the pages were actually free. With patroni_ttl
 #     at 20 that difference is the difference between safe and a needless failover — wait
 #     for dbSizeInUse to drop, and prove the duration on the witness before the leader.
-# The NixOS witness needs these settings in its own config too (etcd pauses the compactor on
-# non-leader members) — done 2026-07-29 in ~/Projects/nixos-config, vent-etcd-witness.nix.
+# The NixOS witness needs these settings in its own config too — done 2026-07-29 in
+# ~/Projects/nixos-config, vent-etcd-witness.nix — because only the LEADER runs the periodic
+# compactor, and the witness can win an election. It is not that followers skip compacting: the
+# leader's compaction is a raft proposal every member applies, verified 2026-07-30 (all three logged
+# `finished scheduled compaction` at revision 3826161, hash 96283083, 21–28 ms). So an unconfigured
+# witness is a latent gap that only opens while it holds leadership, not a permanent one.
+#
+# First periodic run verified 2026-07-30 02:51Z: dbSizeInUse held at 1.1 MB. Note the FILE is
+# 1.7 MB and will not shrink without defrag — etcd reuses the freed pages, so it plateaus near the
+# working-set high-water mark instead of growing without bound like it did before compaction. That
+# plateau has only ~1h of evidence behind it; if the file keeps climbing, defrag per member
+# (followers first) using the timing caveat above.
 etcd_auto_compaction_mode: periodic
 etcd_auto_compaction_retention: "1h"
 

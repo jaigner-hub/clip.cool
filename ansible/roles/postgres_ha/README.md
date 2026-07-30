@@ -81,7 +81,12 @@ only if you accept a read-only window.
 
 **After any run, check where etcd's raft leadership landed.** Recreating a member can leave the
 witness as raft leader, which puts every DCS write across a WAN hop (measured: ~104 ms proposals vs
-~5 ms) and — because etcd pauses the compactor on non-leaders — stops auto-compaction:
+~5 ms). It does **not** stop auto-compaction, as an earlier version of this file claimed: only the
+leader *schedules* a compaction, but it does so as a raft proposal that every member then applies —
+observed 2026-07-30, all three members logging `finished scheduled compaction` at the same revision
+(3826161) and the same hash. The witness still needs the settings in its own config for the case
+where it *is* leader, which is exactly why leadership there is a latency problem and not a
+correctness one:
 
 ```
 docker exec keygrip-pgha-etcd-1 etcdctl \
