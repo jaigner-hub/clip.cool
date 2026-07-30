@@ -73,12 +73,28 @@ for db in {{ pg_ha_backup_databases | join(' ') }}; do
       echo "$(date -u +%FT%TZ) WARN ${db}: uploaded to ${dest} but its size could not be read back — object LEFT IN PLACE, verify by hand"
       rc=1
     elif [ "${bytes}" -lt {{ pg_ha_backup_min_bytes }} ]; then
-      echo "$(date -u +%FT%TZ) FAIL ${db}: landed ${bytes} bytes, under the {{ pg_ha_backup_min_bytes }}-byte floor — removing the truncated object"
+      echo "$(date -u +%FT%TZ) FAIL ${db}: landed ${bytes} bytes, under the {{ pg_ha_backup_min_bytes }}-byte floor — removing the object"
+      rclone deletefile "${dest}" || true
+      rc=1
+    # A byte floor CANNOT tell a truncated dump from a legitimately small one, and this cluster has
+    # both: `vent` is an empty placeholder whose complete dump is ~3 KB, which a floor calibrated to
+    # catch truncation would reject every night (measured 2026-07-30 — it did). pg_dump ends every
+    # successful plain-format dump with this marker, so its presence is a definitive completeness
+    # check at any size. Streaming the object back from B2 also proves the upload is readable and the
+    # gzip intact, which the floor never did.
+    #
+    # `tail` is fed the WHOLE stream (no early close) and the result is captured before grepping —
+    # `… | gunzip | tail | grep -q` would SIGPIPE gunzip when grep exits on the first match and, under
+    # pipefail, fail a perfectly good backup. A corrupt object still fails here: gunzip produces no
+    # usable output, so the marker is missing.
+    elif ! grep -qF -- '-- PostgreSQL database dump complete' \
+             <<<"$(rclone cat "${dest}" 2>/dev/null | gunzip 2>/dev/null | tail -20 || true)"; then
+      echo "$(date -u +%FT%TZ) FAIL ${db}: ${bytes} bytes landed but the dump has no completion marker — truncated or corrupt, removing it"
       rclone deletefile "${dest}" || true
       rc=1
     else
-      echo "$(date -u +%FT%TZ) OK ${db} -> ${dest} (${bytes} bytes)"
-      last_ok["${db}"]="$(date +%s)"   # only a SIZE-CHECKED upload counts as a success
+      echo "$(date -u +%FT%TZ) OK ${db} -> ${dest} (${bytes} bytes, completion marker verified)"
+      last_ok["${db}"]="$(date +%s)"   # only a VERIFIED upload counts as a success
     fi
   else
     echo "$(date -u +%FT%TZ) FAIL ${db}: dump/upload pipeline exited non-zero"

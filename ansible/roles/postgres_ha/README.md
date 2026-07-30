@@ -42,7 +42,9 @@ required** (below).
 ## Bootstrap
 
 ```
-./rolling-deploy.sh postgres-ha.yml
+# ⚠️ rolling-deploy.sh is the RIGHT path but is BROKEN on this tier as of 2026-07-30 — see below.
+./ac ansible-playbook playbooks/postgres-ha.yml -l vent.dog2   # replica first
+./ac ansible-playbook playbooks/postgres-ha.yml -l vent.dog
 ```
 
 Patroni coordinates bootstrap through etcd: whichever node wins the DCS leader key runs `initdb`; the
@@ -50,14 +52,23 @@ other clones it as a replica (`pg_rewind`). The two data-node etcd members are a
 own, so **first bootstrap does not require the witness** — but bring the witness up anyway so failover
 is safe afterward.
 
-### ⚠️ Do not deploy this with a bare `./ac ansible-playbook`
+### ⚠️ Never run this against BOTH boxes in one invocation
 
-This README said to for the role's whole life, and it is the unsafe path. The play has no `serial:`,
-so a bare run recreates etcd on **both** data nodes inside the same task: 3 members become 1, there
-is no majority, Patroni self-fences, and Postgres goes read-only for clip **and** chat.
-`rolling-deploy.sh` is what serializes it — `--limit <host>`, one box at a time, with a Patroni
-leader handoff first. If you must run the playbook directly, do it once per box with `-l`, follower
-first, and check `endpoint health` in between:
+This README documented a bare, unlimited `./ac ansible-playbook playbooks/postgres-ha.yml` for the
+role's whole life, and that is the unsafe path. The play has no `serial:`, so one invocation
+recreates etcd on **both** data nodes inside the same task: 3 members become 1, there is no
+majority, Patroni self-fences, and Postgres goes read-only for clip **and** chat.
+
+`rolling-deploy.sh` exists to serialize exactly this (`--limit <host>`, one box at a time, with a
+Patroni leader handoff first) and is the path this file should recommend. **It does not work on this
+tier today:** its drain calls the Cloudflare *Load Balancer* pool API, this tier is tunnel-only
+(`cloudflared`), and the call returns 401 — so `drain.sh check` fails and rolling-deploy aborts
+before deploying anything. keygrip fixed the same drift by rewriting drain around the tunnel
+connector (its #159–#161); that has not been ported here. Note the knock-on: `reboot_safe()` calls
+the same failing check, so the guarded auto-reboot timer refuses every window once a reboot is
+actually pending — kernel updates never land that way.
+
+Until drain is fixed, roll it by hand, follower first, checking `endpoint health` in between:
 
 ```
 ./ac ansible-playbook playbooks/postgres-ha.yml -l vent.dog2   # the replica first

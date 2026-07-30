@@ -161,11 +161,14 @@ pg_ha_backup_databases:
   - "{{ vent_db_name }}"                  # vent chat app
   - "{{ dendrite_db_name }}"              # Matrix homeserver: all chat history
   - keycloak                              # every identity on id.clip.cool
-# Size floor a landed dump must clear, per database. `rclone rcat` creates an object from a truncated
-# stream, so without this a broken dump is indistinguishable from a good one until a restore. Well
-# under a real dump here (the smallest, vent, is ~8 MB raw) and far above an empty gzip stream
-# (~20 bytes) or a dump that died just after the header.
-pg_ha_backup_min_bytes: 20000
+# Cheap first gate only: catches a zero-byte or near-empty object without downloading anything.
+# It deliberately does NOT try to catch truncation — a byte floor cannot, because a small dump and a
+# truncated dump look identical. `vent` is an empty placeholder database whose COMPLETE dump is
+# ~3 KB, so the 20000 this was ported with rejected it every night (measured 2026-07-30: "landed
+# 3025 bytes, under the 20000-byte floor", which then skipped the retention prune for the whole run).
+# Truncation is caught properly in backup.sh by requiring pg_dump's completion marker in the object
+# streamed back out of B2 — a check that works at any size and also proves the upload is readable.
+pg_ha_backup_min_bytes: 500
 # Advisory lock the dump holds for its whole run. roles/drain's guarded auto-reboot tests this same
 # path and skips its window while a dump is in flight (drain_backup_lock). On tmpfs (/run), so it
 # cannot survive a reboot and strand the lock. Moving this path means moving drain_backup_lock too.
