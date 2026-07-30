@@ -46,6 +46,28 @@ etcd_election_ms: 2500
 etcd_client_port: 2379
 etcd_peer_port: 2380
 
+# --- etcd MVCC compaction (measured on this cluster 2026-07-29) ---
+# Patroni refreshes the DCS leader key every loop_wait and NEVER compacts etcd, so without
+# auto-compaction every revision since bootstrap is retained. Measured here: 8 keys holding
+# 356 KB of live data inside a 1.07 GB backend file — 99.97% dead revisions — against the
+# 2 GiB default quota. At the quota etcd raises NOSPACE and goes READ-ONLY, Patroni can no
+# longer refresh the leader lock, and the cluster demotes: a full-DB outage (chat AND clip,
+# they share this cluster) on a predictable date. Keep ~1h; Patroni needs only current state.
+#
+# The 2026-07-29 backlog was cleared by hand — `etcdctl compact <rev>` then `defrag` per
+# member, followers first, leader last — taking all three from 1.07 GB to ~350 KB with no
+# failover. Two things to know if you ever repeat it:
+#   - compaction frees revisions but NOT disk; only defrag shrinks the file, per member.
+#   - defrag duration tracks IN-USE bytes, not file size, and `compact` returns BEFORE the
+#     background page-freeing finishes. Defragging too soon copies the not-yet-freed pages:
+#     measured 19.6s that way vs 0.1s once the pages were actually free. With patroni_ttl
+#     at 20 that difference is the difference between safe and a needless failover — wait
+#     for dbSizeInUse to drop, and prove the duration on the witness before the leader.
+# The NixOS witness needs these settings in its own config too (etcd pauses the compactor on
+# non-leader members) — done 2026-07-29 in ~/Projects/nixos-config, vent-etcd-witness.nix.
+etcd_auto_compaction_mode: periodic
+etcd_auto_compaction_retention: "1h"
+
 # --- Patroni DCS / failover behaviour ---
 patroni_ttl: 20
 patroni_loop_wait: 3

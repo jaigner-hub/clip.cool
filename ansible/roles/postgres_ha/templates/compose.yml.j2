@@ -27,6 +27,11 @@ services:
       ETCD_HEARTBEAT_INTERVAL: "{{ etcd_heartbeat_ms }}"
       ETCD_ELECTION_TIMEOUT: "{{ etcd_election_ms }}"
       ETCD_ENABLE_V2: "false"
+      # Without auto-compaction Patroni's constant DCS writes retain every revision since
+      # bootstrap and march the backend toward the 2 GiB NOSPACE quota, which takes the whole
+      # Postgres cluster read-only (see defaults — this cluster was found at 1.07 GB).
+      ETCD_AUTO_COMPACTION_MODE: "{{ etcd_auto_compaction_mode }}"
+      ETCD_AUTO_COMPACTION_RETENTION: "{{ etcd_auto_compaction_retention }}"
     volumes:
       - etcd-data:/etcd-data
 

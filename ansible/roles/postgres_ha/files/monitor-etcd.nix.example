@@ -39,6 +39,13 @@
       HEARTBEAT_INTERVAL = "250";
       ELECTION_TIMEOUT   = "2500";
       ENABLE_V2          = "false";
+
+      # Must match etcd_auto_compaction_* in this role's defaults. Compaction is configured
+      # per member and etcd pauses the compactor on any member that is not the raft leader,
+      # so the witness needs its own copy — see the defaults for what an uncompacted cluster
+      # cost this deployment (1.07 GB of dead revisions, 8 live keys).
+      AUTO_COMPACTION_MODE      = "periodic";
+      AUTO_COMPACTION_RETENTION = "1h";
     };
   };
 }
