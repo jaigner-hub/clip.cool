@@ -73,8 +73,13 @@ Inherited from keygrip unless flagged. Rationale for inherited decisions lives i
 ## Infrastructure
 
 - **Dev pair (IONOS, tailnet):** **vent.dog** (`100.106.141.112`) + **vent.dog2** (`100.110.200.36`),
-  Ubuntu 24.04, the HA pair behind the app tunnel's two connectors. clip-web deploys to both; single-instance
-  services (Keycloak, observability, the chat app) live on vent.dog only. Inventory:
+  Ubuntu 24.04, the HA pair behind the app tunnel's two connectors. **Both boxes** run `clip-web`
+  **and Keycloak** (`keycloak.yml` targets `dev` with `serial: 1`, Infinispan-clustered) — which is
+  what makes `id.clip.cool` HA across the two connectors, not just `clip.cool`. Genuinely
+  **single-instance, `primary` (vent.dog) only:** the chat app (`vent.yml`, single active backend),
+  observability, Typesense, GlitchTip, Vaultwarden, Tailscale Serve — and therefore the
+  `cloudflared-chat` connector. ⚠️ Rebooting vent.dog takes chat + livekit down for the ~2 min it is
+  gone; `clip.cool` and `id.clip.cool` ride it out on the peer. Inventory:
   `ansible/inventory.yml` — it **only** targets these boxes.
 - **Deploy tooling — `./ac`:** all Ansible runs go through `ansible/ac`, a wrapper that runs
   `ansible-core` + collections + `sops` inside a pinned control container (ADR 0007). Always from

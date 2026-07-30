@@ -5,9 +5,12 @@
 - name: Keycloak + Postgres (dev)
   hosts: dev
   become: true
-  # serial: 1 = recreate one Keycloak node at a time so the CF LB (id.* → keycloak pool) always has
-  # the peer serving — a KC_HOSTNAME change doesn't bounce both nodes at once. The Infinispan cluster
-  # tolerates a node leaving/rejoining.
+  # serial: 1 = recreate one Keycloak node at a time so the peer is always serving — a KC_HOSTNAME
+  # change doesn't bounce both nodes at once. The Infinispan cluster tolerates a node leaving/rejoining.
+  # (Until 2026-07-30 this said "so the CF LB (id.* → keycloak pool) always has the peer serving"; the
+  # LB is retired. id.clip.cool is now a CNAME to the app tunnel, whose connector on each box proxies
+  # to that box's own Keycloak — so `serial: 1` is what keeps one of the two answering, and it matters
+  # more now, not less: nothing external health-checks these nodes any more.)
   serial: 1
   roles:
     - keycloak
