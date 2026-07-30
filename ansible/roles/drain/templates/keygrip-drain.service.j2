@@ -1,5 +1,5 @@
 [Unit]
-Description=keygrip — drain this box from the Cloudflare LB on shutdown, re-enable on boot (ADR 0016)
+Description=keygrip — stop this box's app tunnel connector on shutdown, re-register it on boot (ADR 0016)
 # Order after docker so on SHUTDOWN this stops FIRST (drain runs while Patroni/HAProxy are still up
 # for the switchover); on BOOT it starts after docker so the app can come up before we undrain.
 After=docker.service network-online.target
