@@ -22,6 +22,9 @@ drain_host_identity:
 # refused every window, so kernel updates never landed. Ported from keygrip's #161.
 drain_cf_account_id: "713923b79dee34635d5a5a1d8da34fbc"
 drain_cf_tunnel_name: "vent-keygrip2"
+# ⚠️ This is the shared ACCOUNT token — it can edit DNS and delete load balancers in every zone,
+# including the AMS sites. drain.sh only reads Account -> Cloudflare Tunnel; a read-only token
+# belongs here instead. Open follow-up, see the note in drain.env.j2.
 drain_cf_token: "{{ vault_cloudflare_api_token | default('') }}"
 # How long to let cloudflared finish in-flight requests after SIGTERM. Must exceed its own 30s
 # --grace-period, and the compose stop_grace_period (45s) must exceed this.
