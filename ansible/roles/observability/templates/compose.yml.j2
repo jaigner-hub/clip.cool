@@ -38,9 +38,14 @@ services:
     restart: unless-stopped
     command:
       - '--path.rootfs=/host'
+      # Scrape *.prom files dropped by jobs Prometheus can't reach itself (the nightly pg_dump).
+      # An explicit mount rather than reading through /host: this stays correct even if the rootfs
+      # mount is ever changed, and it states the dependency instead of hiding it.
+      - '--collector.textfile.directory=/textfile'
     pid: host
     volumes:
       - '/:/host:ro,rslave'
+      - '{{ node_exporter_textfile_dir }}:/textfile:ro'
     networks: [obs]
 
   grafana:

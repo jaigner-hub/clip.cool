@@ -133,4 +133,65 @@ groups:
         annotations:
           summary: "stash raft has fewer than 3 voters"
           description: "A voter has been dropped from the raft configuration (min reported = {{ $value }}) for 10m — membership, not just liveness, is degraded."
+
+  # --- HA Postgres: backups and the write path (roles/postgres_ha) ---
+  # Every alert here exists because the thing it watches failed silently first. Until 2026-07-29 the
+  # nightly dump covered ONE database — and after the clip rename, the one it covered had no
+  # connections — so clip's data, Dendrite's chat history and every Keycloak identity were unbacked
+  # while a logfile nobody reads said "backup OK" every night.
+  - name: keygrip-pgha
+    rules:
+      - alert: PostgresBackupStale
+        # 26h, not 24: the dump runs daily at 02:00, so a 24h threshold would flap on ordinary
+        # minute-to-minute drift in when the run finishes.
+        expr: time() - keygrip_pgha_backup_last_success_timestamp_seconds > 26 * 3600
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres backup stale: {{ $labels.database }}"
+          description: "No size-checked dump of {{ $labels.database }} has landed on B2 for {{ $value | humanizeDuration }}. Check /var/log/keygrip-pgha-backup.log on the backup host."
+
+      - alert: PostgresBackupMetricsMissing
+        # The one that catches the failure mode the alert above CANNOT: if the backup stops running
+        # entirely, or the host is rebuilt, or the textfile dir goes away, the series disappears —
+        # and an expression over a missing series matches nothing and stays silent forever. A
+        # vanished backup would then look exactly like a healthy one. absent() makes silence loud.
+        expr: absent(keygrip_pgha_backup_last_run_timestamp_seconds)
+        for: 6h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres backup metrics have disappeared"
+          description: "keygrip_pgha_backup_last_run_timestamp_seconds is absent — the nightly dump has not reported in at all, which is NOT the same as reporting a failure. Check the cron on the backup host and the node-exporter textfile dir."
+
+      - alert: PostgresBackupRunFailed
+        expr: keygrip_pgha_backup_last_run_failed > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The last Postgres backup run reported a failure"
+          description: "At least one database failed to dump or upload. The retention prune is skipped on a failed run, so old dumps survive — but nothing new landed for that database."
+
+      - alert: HAProxyConnectionsNearMaxconn
+        expr: haproxy_process_current_connections / haproxy_process_max_connections > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HAProxy is at {{ $value | humanizePercentage }} of maxconn on {{ $labels.instance }}"
+          description: "HAProxy has held >50% of its global maxconn for 5m. At 100% it silently stops accepting connections — health checks and logs stay clean while PgBouncer and the app time out. Check for retained sessions (`curl -s localhost:7000/;csv`); restarting the container clears it, but find what is holding them."
+
+      # The write backend having NO server is the other way this path dies: it means Patroni has no
+      # leader (not a failover — a failover keeps exactly one server up). Distinct from the alert
+      # above, and it can happen while connection counts look perfectly normal.
+      - alert: HAProxyNoWriteBackend
+        expr: haproxy_backend_active_servers{proxy="pgsql_write"} < 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No Postgres write backend on {{ $labels.instance }}"
+          description: "HAProxy's pgsql_write backend has no server answering /primary 200 — Patroni has no leader, so the whole cluster is read-only for clip and chat alike."
 {% endraw %}

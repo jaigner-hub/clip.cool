@@ -16,6 +16,10 @@ set -euo pipefail
 . /opt/keygrip/drain/drain.env
 API="https://api.cloudflare.com/client/v4"
 PGHA=/opt/keygrip-pgha/compose.yml
+# drain.env supplies BACKUP_LOCK (from drain_backup_lock), but keep a literal fallback: under
+# `set -u` an unset var aborts the script, so a box whose drain.env predates the backup interlock
+# would fail every reboot gate instead of just missing the new check. This file is NOT templated.
+BACKUP_LOCK="${BACKUP_LOCK:-/run/lock/keygrip-pgha-backup.lock}"
 log() { echo "[drain] $*"; }
 cf()  { curl -fsS --max-time 15 -H "Authorization: Bearer ${CF_TOKEN}" "$@"; }
 
@@ -116,9 +120,27 @@ lb_out() {
 # Can the cluster safely lose THIS node right now? (all 3 etcd members healthy + the peer up.)
 reboot_safe() { etcd_all_healthy && other_ready; }
 
+# Is the nightly pg_dump in flight? Kept SEPARATE from reboot_safe() — that answers "can the cluster
+# survive losing this node", which is still true during a backup; this answers "would rebooting now
+# destroy something". It matters because prepare_for_reboot hands off the Patroni leader, severing a
+# dump that streams through HAProxy's write port, and `rclone rcat` then finalises the truncated
+# stream into an object big enough to pass every check backup.sh makes. A silently corrupt backup is
+# worse than a skipped reboot: the timer is daily with Persistent=true, so waiting a night is free.
+# Measured 2026-07-29, before pg_ha_backup_hour moved to 02:00: the dump started at 04:00:00 and this
+# timer fired at 04:00:58 — the two had been racing nightly with nothing between them.
+backup_running() {
+  [ -e "$BACKUP_LOCK" ] || return 1
+  ! flock -n "$BACKUP_LOCK" true 2>/dev/null
+}
+
 # safe-reboot (manual): gate FIRST, then prep while healthy, then reboot. Refuses if unsafe.
 safe_reboot() {
   reboot_safe || { log "REFUSING reboot — the cluster cannot safely lose this node right now (see above)"; exit 1; }
+  # `if`, not `X && { … }` — under `set -e` the negative case of an && list is a footgun here.
+  if backup_running; then
+    log "REFUSING reboot — a pg_dump holds ${BACKUP_LOCK}; rebooting now would truncate it. Wait for it to finish, then retry."
+    exit 1
+  fi
   log "cluster fully healthy — handing off + draining, then rebooting"
   prepare_for_reboot
   systemctl reboot
@@ -128,6 +150,10 @@ safe_reboot() {
 reboot_if_safe() {
   [ -f /run/reboot-required ] || { log "no reboot pending — nothing to do"; exit 0; }
   reboot_safe || { log "reboot pending but cluster not fully healthy — SKIPPING this window"; exit 0; }
+  if backup_running; then
+    log "reboot pending but a pg_dump holds ${BACKUP_LOCK} — SKIPPING this window (rebooting would truncate the backup); the timer retries tomorrow"
+    exit 0
+  fi
   log "reboot pending + cluster healthy — handing off + draining, then rebooting"
   prepare_for_reboot
   systemctl reboot

@@ -1,26 +1,166 @@
 #!/usr/bin/env bash
-# Nightly logical backup of the app DB -> Backblaze B2 (ADR 0016). Dumps via HAProxy (so it always
-# hits the current leader), streams gzipped to B2 with rclone (config via env). This is the
-# dev-grade recovery FLOOR — not PITR. Replication is NOT backup (it replicates a DROP TABLE).
+# Nightly logical backup of EVERY database on the cluster -> Backblaze B2 (ADR 0016). Dumps via
+# HAProxy (so it always hits the current leader), streams gzipped to B2 with rclone (config via env).
+#
+# This is the dev-grade recovery FLOOR — not PITR. **Replication is NOT backup:** the standby
+# faithfully replicates a DROP TABLE, a bad migration, or a ransomware run. That matters more here
+# than it looks, because roles/clip_web runs `manage.py migrate` automatically on every deploy — a
+# destructive migration lands on BOTH nodes at once, and without these dumps there is no undo.
+#
+# History: this script dumped ONE database, and after the clip rename the one it dumped was
+# `keygrip` — a leftover with no connections. The live app data, Dendrite's chat history and
+# keycloak.user_entity (the only copy of every login on id.clip.cool) were unbacked from bootstrap
+# until 2026-07-29, while three nightly dumps of a dead database sat in B2 looking like a backup.
+# Every guard below exists because some version of "it looked like it was working" was false.
 set -euo pipefail
 cd "{{ pg_ha_dir }}"
+
+# Hold an advisory lock for the WHOLE run. Two readers: a second dump (overlap ⇒ two streams to the
+# same prefix), and roles/drain's guarded auto-reboot, which skips its window while this is held.
+# That second one is the point — the reboot path hands off the Patroni leader before rebooting,
+# which severs a dump mid-stream, and `rclone rcat` turns the truncated stream into an object that
+# clears the size floor below. Nothing downstream can tell that object from a good backup. Measured
+# 2026-07-29: cron fired 04:00:00 and keygrip-safe-reboot.timer 04:00:58 — a ~40s margin, unguarded.
+exec 9>"{{ pg_ha_backup_lock }}"
+flock -n 9 || { echo "$(date -u +%FT%TZ) another backup still holds {{ pg_ha_backup_lock }} — skipping this run"; exit 0; }
+
 set -a; . "{{ pg_ha_dir }}/.env"; set +a
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-DEST="b2:{{ pg_ha_b2_bucket }}/{{ pg_ha_b2_path }}/{{ app_db_name }}-${STAMP}.sql.gz"
+PREFIX="b2:{{ pg_ha_b2_bucket }}/{{ pg_ha_b2_path }}"
 
 # rclone B2 remote 'b2' purely from env (no on-disk rclone.conf).
 export RCLONE_CONFIG_B2_TYPE=b2
 export RCLONE_CONFIG_B2_ACCOUNT="${B2_ACCOUNT_ID}"
 export RCLONE_CONFIG_B2_KEY="${B2_APP_KEY}"
 
-docker compose -f "{{ pg_ha_dir }}/compose.yml" exec -T \
-  -e PGPASSWORD="${APP_DB_PASSWORD}" patroni \
-  pg_dump -h 127.0.0.1 -p {{ pg_ha_haproxy_write_port }} -U {{ app_db_user }} -d {{ app_db_name }} \
-  | gzip | rclone rcat "${DEST}"
+# --- Backup-age metrics (node_exporter textfile collector) ---
+# A log line is not a monitoring signal: until this existed, the ONLY evidence a backup ran was a
+# file nobody reads, so a silently stopped backup was indistinguishable from a working one. Load
+# the PREVIOUS run's success timestamps first and carry them forward, so one database failing does
+# not reset the others — each database goes stale on its own clock.
+METRICS="{{ pg_ha_backup_metrics_dir }}/keygrip_pgha_backup.prom"
+mkdir -p "$(dirname "${METRICS}")"
+declare -A last_ok=()
+if [ -f "${METRICS}" ]; then
+  while read -r _db _ts; do
+    # `if`, not `[ … ] && …`: under `set -e` a failing AND-list as the last command of the loop
+    # body kills the whole script, which would turn a malformed metrics line into a skipped backup.
+    if [ -n "${_db}" ]; then last_ok["${_db}"]="${_ts}"; fi
+  done < <(sed -n 's/^keygrip_pgha_backup_last_success_timestamp_seconds{database="\([^"]*\)"} \(.*\)$/\1 \2/p' "${METRICS}")
+fi
 
-# Retention: prune dumps older than the retention window.
-rclone delete --min-age {{ pg_ha_backup_retain_days }}d \
-  "b2:{{ pg_ha_b2_bucket }}/{{ pg_ha_b2_path }}/" || true
+rc=0
+for db in {{ pg_ha_backup_databases | join(' ') }}; do
+  dest="${PREFIX}/${db}-${STAMP}.sql.gz"
 
-echo "$(date -u +%FT%TZ) backup OK -> ${DEST}"
+  # Dump as the SUPERUSER, not the app role. The app role has no rights in Keycloak's or Dendrite's
+  # database, and keycloak.user_entity is the ONLY copy of every login on the platform. Losing it
+  # means losing the ability to authenticate at all, which no amount of app-data recovery fixes.
+  # Backing up only app_db_name is the exact failure this loop exists to avoid.
+  if docker compose -f "{{ pg_ha_dir }}/compose.yml" exec -T \
+       -e PGPASSWORD="${PATRONI_SUPERUSER_PASSWORD}" patroni \
+       pg_dump -h 127.0.0.1 -p {{ pg_ha_haproxy_write_port }} \
+               -U "${PATRONI_SUPERUSER_USERNAME}" -d "${db}" \
+     | gzip | rclone rcat "${dest}"
+  then
+    # `rclone rcat` will happily create an object from a truncated stream, so a half-finished dump
+    # looks like a successful backup right up until someone tries to restore it. Check what landed.
+    bytes="$(rclone size --json "${dest}" 2>/dev/null | sed -n 's/.*"bytes":[[:space:]]*\([0-9]*\).*/\1/p')"
+    if [ -z "${bytes}" ]; then
+      # Could not read the size back — e.g. a transient B2 error. Do NOT treat an unknown size as
+      # a small one: deleting here would destroy a backup that is probably fine. Flag it instead.
+      echo "$(date -u +%FT%TZ) WARN ${db}: uploaded to ${dest} but its size could not be read back — object LEFT IN PLACE, verify by hand"
+      rc=1
+    elif [ "${bytes}" -lt {{ pg_ha_backup_min_bytes }} ]; then
+      echo "$(date -u +%FT%TZ) FAIL ${db}: landed ${bytes} bytes, under the {{ pg_ha_backup_min_bytes }}-byte floor — removing the truncated object"
+      rclone deletefile "${dest}" || true
+      rc=1
+    else
+      echo "$(date -u +%FT%TZ) OK ${db} -> ${dest} (${bytes} bytes)"
+      last_ok["${db}"]="$(date +%s)"   # only a SIZE-CHECKED upload counts as a success
+    fi
+  else
+    echo "$(date -u +%FT%TZ) FAIL ${db}: dump/upload pipeline exited non-zero"
+    # `rcat` can create a PARTIAL object before the pipeline dies, and the size check above lives
+    # only on the success path — so without this a failed run can leave a short, unverified object
+    # sitting in the prefix under a perfectly normal-looking name. The dest carries this run's
+    # unique STAMP, so anything here came from THIS failed attempt and is not worth keeping.
+    # deletefile exits non-zero when there's nothing there, which is the common case (the upload
+    # usually fails before any object exists) — hence the `if`, so the log only claims a removal
+    # that actually happened.
+    if rclone deletefile "${dest}" 2>/dev/null; then
+      echo "$(date -u +%FT%TZ) removed the partial object left at ${dest}"
+    fi
+    rc=1
+  fi
+done
+
+# Retention: prune dumps older than the window — but ONLY if every database backed up cleanly.
+# Pruning after a failed run is how a backup system quietly turns an outage into data loss: each
+# night deletes good old dumps while adding nothing, until the retention window is empty.
+if [ "${rc}" -eq 0 ]; then
+  # --b2-hard-delete is LOAD-BEARING. Without it rclone doesn't delete on B2 at all: it *hides* the
+  # file (a delete marker), the version stays, and it keeps costing storage forever. `rclone delete`
+  # still exits 0 and the visible listing still shows exactly the retention window, so retention
+  # looks like it is working while usage climbs every night. Nothing had noticed here only because
+  # no prune had ever run yet: on 2026-07-29 the oldest object was 3 days old against a 14-day
+  # window, so the first soft-delete would have been ~2026-08-10.
+  rclone delete --b2-hard-delete --min-age {{ pg_ha_backup_retain_days }}d "${PREFIX}/" || true
+  # Sweep versions already hidden by a soft delete — an earlier run of this script before the flag
+  # was added, or a hand-run `rclone delete`. Safe here because every upload carries a unique STAMP,
+  # so no current object has an older version worth keeping; the only things this can remove are
+  # copies already deleted on purpose.
+  rclone cleanup "${PREFIX}/" || true
+else
+  echo "$(date -u +%FT%TZ) a backup FAILED this run — skipping retention prune so existing dumps survive"
+fi
+
+# Bucket usage, read AFTER the prune. This is the check that retention is actually freeing space:
+# object count should plateau at (databases × retain_days) and bytes should stop climbing.
+# ⚠️ Scoped to THIS bucket, which it SHARES with other homelab backups (1.82 GiB / 213 objects on
+# 2026-07-29, of which only 3 were ours). B2's cap is ACCOUNT-wide, so a healthy number here does
+# not mean uploads will succeed — the sibling tier was refused with storage_cap_exceeded while its
+# own bucket held 216 MiB.
+b2_bytes=""
+b2_objects=""
+_size="$(rclone size --json "b2:{{ pg_ha_b2_bucket }}" 2>/dev/null || true)"
+if [ -n "${_size}" ]; then
+  b2_bytes="$(sed -n 's/.*"bytes":[[:space:]]*\([0-9]*\).*/\1/p' <<<"${_size}")"
+  b2_objects="$(sed -n 's/.*"count":[[:space:]]*\([0-9]*\).*/\1/p' <<<"${_size}")"
+fi
+
+# Publish the metrics LAST, and unconditionally — a failed run must still record that it ran, or
+# "the backup is broken" and "the backup host is gone" look identical to Prometheus. Written to a
+# temp file and renamed, because the textfile collector reads whatever is there mid-write otherwise
+# and reports a parse error. Not under /run: these must survive a reboot, or every reboot would
+# look like a vanished backup.
+{
+  echo "# HELP keygrip_pgha_backup_last_success_timestamp_seconds Unix time of the last size-checked pg_dump upload, per database."
+  echo "# TYPE keygrip_pgha_backup_last_success_timestamp_seconds gauge"
+  for _db in "${!last_ok[@]}"; do
+    printf 'keygrip_pgha_backup_last_success_timestamp_seconds{database="%s"} %s\n' "${_db}" "${last_ok[${_db}]}"
+  done
+  echo "# HELP keygrip_pgha_backup_last_run_timestamp_seconds Unix time of the last backup run, successful or not."
+  echo "# TYPE keygrip_pgha_backup_last_run_timestamp_seconds gauge"
+  echo "keygrip_pgha_backup_last_run_timestamp_seconds $(date +%s)"
+  echo "# HELP keygrip_pgha_backup_last_run_failed 1 if any database failed on the last run."
+  echo "# TYPE keygrip_pgha_backup_last_run_failed gauge"
+  echo "keygrip_pgha_backup_last_run_failed ${rc}"
+  # Emitted only when the size read succeeded — a stale number here would be worse than a gap,
+  # because it is the series that says "retention is still working".
+  if [ -n "${b2_bytes}" ]; then
+    echo "# HELP keygrip_b2_bucket_bytes Bytes stored in the backup bucket, measured after the retention prune."
+    echo "# TYPE keygrip_b2_bucket_bytes gauge"
+    printf 'keygrip_b2_bucket_bytes{bucket="%s"} %s\n' "{{ pg_ha_b2_bucket }}" "${b2_bytes}"
+  fi
+  if [ -n "${b2_objects}" ]; then
+    echo "# HELP keygrip_b2_bucket_objects Objects in the backup bucket, measured after the retention prune."
+    echo "# TYPE keygrip_b2_bucket_objects gauge"
+    printf 'keygrip_b2_bucket_objects{bucket="%s"} %s\n' "{{ pg_ha_b2_bucket }}" "${b2_objects}"
+  fi
+} > "${METRICS}.tmp"
+chmod 0644 "${METRICS}.tmp"   # node-exporter reads it as a different (non-root) uid
+mv "${METRICS}.tmp" "${METRICS}"   # chmod BEFORE the rename, so the published file is never 0600
+
+exit "${rc}"

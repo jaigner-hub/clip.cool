@@ -21,3 +21,8 @@ cf_manage_access: true
 # a secret changes the agent rewrites it and recreates the affected app containers
 # (compose re-reads .env for ${VAR} interpolation). Empty = render only (parallel run).
 stash_on_change: "docker compose -f /opt/keygrip/webapp/compose.yml up -d"
+
+# Shared by TWO roles: postgres_ha BINDS this port (HAProxy stats + Prometheus metrics) and
+# observability SCRAPES it. It lives here rather than only in postgres_ha/defaults because those
+# defaults are out of scope in the observability play, where an undefined var would fail the render.
+pg_ha_haproxy_stats_port: 7000

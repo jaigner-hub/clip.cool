@@ -61,6 +61,19 @@ scrape_configs:
           instance: '{{ h }}'
 {% endfor %}
 
+  # HAProxy (roles/postgres_ha) — the DB write path's leader router. Nothing scraped this until
+  # 2026-07-29, which is why a saturation outage on the sibling tier had no session history to
+  # diagnose: haproxy_process_current_connections / _max_connections is the missing signal, and
+  # HAProxy stops accept()ing at the ceiling while every other signal stays green.
+  - job_name: haproxy
+    metrics_path: /metrics
+    static_configs:
+{% for h in groups['dev'] %}
+      - targets: ['{{ hostvars[h].ansible_host }}:{{ pg_ha_haproxy_stats_port }}']
+        labels:
+          instance: '{{ h }}'
+{% endfor %}
+
   # External blackbox probes (uptime from outside + TLS cert expiry) via blackbox-exporter.
   - job_name: blackbox-http
     metrics_path: /probe

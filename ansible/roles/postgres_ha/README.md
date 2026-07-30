@@ -42,13 +42,45 @@ required** (below).
 ## Bootstrap
 
 ```
-./ac ansible-playbook playbooks/postgres-ha.yml
+./rolling-deploy.sh postgres-ha.yml
 ```
 
 Patroni coordinates bootstrap through etcd: whichever node wins the DCS leader key runs `initdb`; the
 other clones it as a replica (`pg_rewind`). The two data-node etcd members are a 2/3 majority on their
 own, so **first bootstrap does not require the witness** — but bring the witness up anyway so failover
 is safe afterward.
+
+### ⚠️ Do not deploy this with a bare `./ac ansible-playbook`
+
+This README said to for the role's whole life, and it is the unsafe path. The play has no `serial:`,
+so a bare run recreates etcd on **both** data nodes inside the same task: 3 members become 1, there
+is no majority, Patroni self-fences, and Postgres goes read-only for clip **and** chat.
+`rolling-deploy.sh` is what serializes it — `--limit <host>`, one box at a time, with a Patroni
+leader handoff first. If you must run the playbook directly, do it once per box with `-l`, follower
+first, and check `endpoint health` in between:
+
+```
+./ac ansible-playbook playbooks/postgres-ha.yml -l vent.dog2   # the replica first
+./ac ansible-playbook playbooks/postgres-ha.yml -l vent.dog
+```
+
+The play's `pre_tasks` refuse to start when etcd is *already* short a voter (usually the homelab
+witness), which is the other half of the same hazard — override with `-e confirm_degraded_etcd=yes`
+only if you accept a read-only window.
+
+**After any run, check where etcd's raft leadership landed.** Recreating a member can leave the
+witness as raft leader, which puts every DCS write across a WAN hop (measured: ~104 ms proposals vs
+~5 ms) and — because etcd pauses the compactor on non-leaders — stops auto-compaction:
+
+```
+docker exec keygrip-pgha-etcd-1 etcdctl \
+  --endpoints=100.106.141.112:2379,100.110.200.36:2379,100.109.229.12:2379 -w table endpoint status
+# if the witness (100.109.229.12) is IS LEADER, move it back:
+docker exec keygrip-pgha-etcd-1 etcdctl --endpoints=100.109.229.12:2379 move-leader <data-node-id>
+```
+
+Note that `endpoint status --cluster` reports only members that advertise a client URL, so it can
+hide a member entirely — pass `--endpoints` explicitly as above.
 
 ## Verify (the whole point — do these)
 

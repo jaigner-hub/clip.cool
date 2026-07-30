@@ -3,7 +3,16 @@
 # write backend has exactly one "up" server at a time. Failover = the new leader starts answering
 # /primary 200, the old one stops; HAProxy re-points with no app change.
 global
-    maxconn 500
+    # ⚠️ Reaching the GLOBAL maxconn is SILENT. HAProxy pauses its listeners — it stops accept()ing
+    # — while health checks keep running, backends stay UP, and the logs stay clean. Every signal
+    # reports healthy during a hard outage. That is what took the sibling tier's app down on
+    # 2026-07-26: PgBouncer logged `connect timeout (age=5s)` against a HAProxy whose own check
+    # transitions were still being written normally six minutes in, the listen socket's accept queue
+    # had backed up (measured: Recv-Q 86 of a 500 backlog), and `docker restart` cleared it
+    # instantly. Steady state here is ~30 connections, so 500 was never sized against anything;
+    # this is headroom, not a tuning target. HAProxy raises its own fd ulimit to match (~2×maxconn),
+    # so the cost is a few MB of RAM.
+    maxconn {{ pg_ha_haproxy_maxconn }}
     log stdout format raw local0
 
 defaults
@@ -14,14 +23,35 @@ defaults
     timeout server  30m
     timeout connect 5s
     timeout check   5s
+    # Reap half-closed sessions. Without these, a session whose peer has sent FIN is held for the
+    # full 30m `timeout client` — and in practice far longer, because the peers are container IPs
+    # that get reassigned to OTHER containers, so the sockets outlive the processes that opened them.
+    # Measured on this pair 2026-07-29: 22 and 17 CLOSE-WAIT sockets on :5000 against ~30
+    # connections in steady state, on containers up 11 days, with Patroni switchovers and container
+    # replacements as the step function. The sibling tier ran the same config to scur=529 against a
+    # 500 maxconn. That climb ends at the global maxconn above, and the banner explains why that
+    # ending is silent.
+    timeout client-fin 30s
+    timeout server-fin 30s
 
-# Stats UI (tailnet only — bound on host loopback by the container's host networking)
+# Stats UI + Prometheus metrics.
+# Bound on 0.0.0.0 (host net) rather than loopback, like the proxy ports below: Prometheus runs on
+# vent.dog only and has to scrape the OTHER box's HAProxy over the tailnet, which a loopback bind
+# makes impossible. ufw is what restricts this (docker range + tailscale0; the public interface is
+# default-denied and the box publishes no public ports at all — ingress is Cloudflare Tunnel).
+# Binding the tailnet IP explicitly would be tighter, but HAProxy fails to START if that address
+# isn't up yet, which trades a firewall nicety for a boot-order DB outage.
 listen stats
     mode http
-    bind 127.0.0.1:{{ pg_ha_haproxy_stats_port }}
+    bind 0.0.0.0:{{ pg_ha_haproxy_stats_port }}
     stats enable
     stats uri /
     stats refresh 5s
+    # The saturation above was undiagnosable after the fact because NOTHING scraped HAProxy — no
+    # exporter, no job, no alert — so there was no session history for the one component that
+    # wedged. haproxy_process_current_connections / haproxy_process_max_connections is the signal
+    # that was missing.
+    http-request use-service prometheus-exporter if { path /metrics }
 
 # --- WRITE / leader (session connections: the Procrastinate worker's LISTEN/NOTIFY lives here) ---
 # Bound on 0.0.0.0 (host net) so app containers reach it via host.docker.internal:host-gateway.

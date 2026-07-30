@@ -10,12 +10,103 @@
 #   - SOPS has: vault_pg_superuser_password, vault_pg_replication_password,
 #     vault_patroni_restapi_password, vault_app_db_password (exists), vault_b2_account_id, vault_b2_app_key.
 #
-#   ./ac ansible-playbook playbooks/postgres-ha.yml
+#   ./rolling-deploy.sh postgres-ha.yml
+#
+# ⚠️ Deploy through rolling-deploy.sh, NOT a bare `./ac ansible-playbook`. This play has no
+# `serial:`, so a bare run recreates etcd on BOTH data nodes inside the same task — 3 members
+# become 1, there is no majority, Patroni self-fences and Postgres goes READ-ONLY for clip AND
+# chat. rolling-deploy.sh is what serializes it (`--limit <host>`, one box at a time, with a
+# Patroni leader handoff first). A bare run is only safe with `-l <one-host>`, by hand, twice.
+#
+# ⚠️ RE-RUNNING THIS RECREATES etcd ON EACH BOX IN TURN. That is a voter going down, twice, one
+# after the other — exactly what drain.sh's `safe-reboot` refuses to do unless all 3 members are
+# healthy. The reboot path has been gated on 3/3 since it was written; this path never was, even
+# though it performs the same action. With the witness already down (homelab power, a reverted
+# NixOS generation at 04:59, a dead tailnet hop) the pair is 2/3, and taking one of the survivors
+# down leaves 1 of 3. The pre_tasks below close that asymmetry.
 #
 # ⚠️ This stands up a NEW cluster ALONGSIDE the existing single-node appdb. It does NOT touch
-# keygrip_web or migrate data — the app cutover is a separate, deliberate step (see README).
+# clip_web or migrate data — the app cutover is a separate, deliberate step (see README).
 - name: Self-hosted HA Postgres (Patroni + etcd) — ADR 0016
   hosts: dev
   become: true
+
+  pre_tasks:
+    # A first run has no cluster to protect — the gate must not make bootstrapping impossible.
+    # Absence of the compose file is the "genuinely unprovisioned" signal.
+    - name: Is there already an etcd cluster on this box?
+      ansible.builtin.stat:
+        path: "{{ pg_ha_dir }}/compose.yml"
+      register: pgha_compose
+
+    - name: Query etcd cluster health
+      # Mirrors roles/drain/files/drain.sh etcd_all_healthy() deliberately — same endpoint, same
+      # --cluster query, same 5s timeout. etcdctl writes the health lines to STDERR, which is why
+      # both streams are folded together below. failed_when: false so an unreachable etcd reaches
+      # the assert as evidence rather than dying here with a raw command error.
+      ansible.builtin.command: >-
+        docker compose -f {{ pg_ha_dir }}/compose.yml exec -T etcd
+        etcdctl --endpoints=http://127.0.0.1:{{ etcd_client_port }}
+        --command-timeout=5s endpoint health --cluster
+      register: etcd_health
+      changed_when: false
+      failed_when: false
+      # Read-only, so run it under --check too. Without this the query is skipped in check mode,
+      # the assert below sees no output, and a dry run reports "zero members reported" on a
+      # perfectly healthy cluster — which would teach people to ignore this gate. With it,
+      # `--check` is an honest, side-effect-free rehearsal of the gate itself.
+      check_mode: false
+      when: pgha_compose.stat.exists
+
+    - name: Refuse to recreate etcd while the cluster is already short a voter
+      vars:
+        _out: "{{ (etcd_health.stdout | default('')) ~ '\n' ~ (etcd_health.stderr | default('')) }}"
+        _members: "{{ _out.split('\n') | select('search', 'is (healthy|unhealthy)') | list }}"
+        _healthy: "{{ _out.split('\n') | select('search', 'is healthy') | list }}"
+      ansible.builtin.assert:
+        that:
+          # >= 3, not == 3: a 0 here means etcdctl produced no health lines at all, i.e. we never
+          # reached etcd (wrong port, container down). drain.sh calls that out explicitly because
+          # 0/0 reads like total quorum loss and is actually "the check itself failed".
+          - _members | length >= 3
+          - _healthy | length == _members | length
+        success_msg: "etcd {{ _healthy | length }}/{{ _members | length }} healthy — safe to recreate a voter."
+        fail_msg: |
+          etcd is {{ _healthy | length }}/{{ _members | length }} healthy on {{ inventory_hostname }} — refusing to recreate a voter.
+
+          This playbook restarts etcd on each box in turn. At {{ _members | length }} member(s)
+          reporting and {{ _healthy | length }} healthy, taking another down leaves the cluster
+          without a majority: no etcd leader, Patroni self-fences, Postgres goes READ-ONLY for clip
+          and chat alike (they share this cluster).
+
+          {% if _members | length == 0 %}
+          NOTE: zero members reported. That is NOT "everything is down" — etcdctl returned no health
+          output at all, so this box could not reach etcd on port {{ etcd_client_port }}. Check the
+          container before reading this as quorum loss:
+            ssh {{ inventory_hostname }} 'sudo docker compose -f {{ pg_ha_dir }}/compose.yml ps etcd'
+          {% else %}
+          Usually the missing voter is the homelab witness (`monitor`). It is a NixOS box this repo
+          does not manage. Common causes: homelab power, or a local nixos-rebuild from an unpushed
+          tree that 04:59's autoUpgrade silently reverted. Note that `endpoint status --cluster`
+          reports only members advertising a client URL, so prefer explicit --endpoints:
+            ssh vent.dog "sudo docker exec keygrip-pgha-etcd-1 etcdctl \
+              --endpoints=http://127.0.0.1:{{ etcd_client_port }} endpoint status --cluster -w table"
+          {% endif %}
+
+          Wait for the member to return. If you must proceed anyway — accepting a read-only window
+          on this cluster — re-run with:  -e confirm_degraded_etcd=yes
+      when:
+        - pgha_compose.stat.exists
+        - not (confirm_degraded_etcd | default(false) | bool)
+
+    - name: Note that the quorum gate was skipped
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'No cluster at ' ~ pg_ha_dir ~ ' yet — first run, nothing to protect, gate skipped.'
+             if not pgha_compose.stat.exists
+             else 'confirm_degraded_etcd=yes — quorum gate DELIBERATELY BYPASSED. A read-only
+                   window on this cluster is possible.' }}
+      when: not pgha_compose.stat.exists or (confirm_degraded_etcd | default(false) | bool)
+
   roles:
     - postgres_ha

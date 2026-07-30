@@ -29,12 +29,14 @@
     src: Dockerfile.patroni.j2
     dest: "{{ pg_ha_dir }}/Dockerfile.patroni"
     mode: "0644"
+  register: _patroni_dockerfile
 
 - name: Stage the Patroni entrypoint
   ansible.builtin.copy:
     src: patroni-entrypoint.sh
     dest: "{{ pg_ha_dir }}/patroni-entrypoint.sh"
     mode: "0755"
+  register: _patroni_entrypoint
 
 - name: Render non-secret configs (patroni / compose)
   ansible.builtin.template:
@@ -87,7 +89,15 @@
 - name: Build + bring up the HA Postgres stack
   community.docker.docker_compose_v2:
     project_src: "{{ pg_ha_dir }}"
-    build: always
+    # Rebuild ONLY when the image's build context actually changed. This was `always`, which rebuilt
+    # the Patroni image on every run — and because Dockerfile.patroni tracks the floating
+    # `postgres:{{ pg_ha_postgres_major }}-bookworm` tag, a new image id recreates the container, so
+    # a no-op config run restarted Postgres and could move the leader. Observed 2026-07-29: shipping
+    # nothing but two etcd env lines recreated the patroni container on both boxes. That made real
+    # changes indistinguishable from noise, which is how a role stops being trusted. The two tasks
+    # above are the only way the build context can change, so gating on them keeps a genuine
+    # Dockerfile/entrypoint edit rebuilding.
+    build: "{{ 'always' if (_patroni_dockerfile.changed or _patroni_entrypoint.changed) else 'policy' }}"
     state: present
 
 # The app containers (webapp/worker, on docker bridges) reach the host proxies via host-gateway.
@@ -104,6 +114,9 @@
     - "{{ pgbouncer_listen_port }}"
     - "{{ pg_ha_haproxy_write_port }}"
     - "{{ pg_ha_haproxy_read_port }}"
+    # Prometheus (a container on vent.dog) scrapes HAProxy's stats/metrics port here. Cross-box
+    # scraping of the other node rides tailscale0, which is already allowed.
+    - "{{ pg_ha_haproxy_stats_port }}"
 
 # --- App database + role (created once, on the leader, via HAProxy's write port) ---
 # HAProxy routes 127.0.0.1:{{ write }} to the current leader; the app role/db creation is idempotent.
@@ -136,11 +149,31 @@
       -e PGPASSWORD={{ vault_pg_superuser_password }} patroni
       psql -h 127.0.0.1 -p {{ pg_ha_haproxy_write_port }} -U postgres -v ON_ERROR_STOP=1 -f -
       < {{ pg_ha_dir }}/init-app-db.sql
+  register: _init_app_db
   run_once: true
   no_log: true
-  changed_when: true
+  # The SQL is idempotent (`\gexec` runs the DDL only when the object is missing), so reporting an
+  # unconditional `changed` was a lie every run after the first — and a role that always says
+  # `changed` trains you to ignore the one run where it means something. psql prints a CREATE ROLE /
+  # CREATE DATABASE command tag ONLY when \gexec actually executed, so the tag is the honest signal.
+  changed_when: >-
+    'CREATE ROLE' in _init_app_db.stdout or 'CREATE DATABASE' in _init_app_db.stdout
 
 # --- Nightly pg_dump -> Backblaze B2 (ADR 0016). Runs on ONE node only; rclone config via env. ---
+# The textfile-collector drop dir backup.sh publishes its age metrics into. Created here as well as
+# in roles/observability because THIS role is the writer: postgres-ha.yml must not depend on
+# observability.yml having run first (it currently has, but that ordering is nowhere enforced).
+- name: Ensure the backup metrics dir (backup host only)
+  ansible.builtin.file:
+    path: "{{ pg_ha_backup_metrics_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - pg_ha_backup_enabled | bool
+    - inventory_hostname == pg_ha_backup_host
+
 - name: Install rclone (backup host only)
   ansible.builtin.apt:
     name: rclone

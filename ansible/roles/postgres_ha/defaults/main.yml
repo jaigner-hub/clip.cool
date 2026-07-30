@@ -105,8 +105,12 @@ dendrite_db_user: "dendrite"
 pg_ha_haproxy_write_port: 5000
 # read-only/replicas port (optional, for read traffic) — not used by the app yet.
 pg_ha_haproxy_read_port: 5001
-# Patroni REST stats UI / haproxy stats (tailnet only)
+# Patroni REST stats UI / haproxy stats + Prometheus metrics (tailnet only; see haproxy.cfg.j2).
 pg_ha_haproxy_stats_port: 7000
+# Global connection ceiling. Hitting it makes HAProxy stop accept()ing while every health signal
+# stays green — see the annotated `global` block in haproxy.cfg.j2 before lowering it. Steady state
+# on this pair is ~30 connections, so this is deliberate headroom, not a tuning target.
+pg_ha_haproxy_maxconn: 4000
 
 # --- PgBouncer (transaction mode for the WEB tier; ADR 0008 / #8) ---
 # The edoburu/pgbouncer image runs as uid 70 (its 'postgres') and drops to it even if started as
@@ -126,7 +130,46 @@ pgbouncer_server_connect_timeout: 5
 # --- Backups: nightly pg_dump -> Backblaze B2 via rclone (ADR 0016) ---
 pg_ha_backup_enabled: true
 pg_ha_backup_host: "vent.dog"             # run the dump on ONE node only (avoid double dumps)
-pg_ha_backup_hour: 4                      # 04:00 box time
+# 02:00 box time. NOT 4 — that was the original default and it collides head-on with roles/drain's
+# drain_reboot_time of "04:00". Measured 2026-07-29: the backup cron fired at 04:00:00 and
+# keygrip-safe-reboot.timer at 04:00:58, i.e. the dump won by ~40s and nothing said otherwise. The
+# reboot path hands off the Patroni leader and then kills this script, and `rclone rcat` turns the
+# truncated stream into an object that clears pg_ha_backup_min_bytes and reads as a good backup.
+# Changing this back re-arms that race; the flock in backup.sh is the second line of defence.
+pg_ha_backup_hour: 2
 pg_ha_b2_bucket: "Backup-jaigner-homelab"
 pg_ha_b2_path: "keygrip-pgha"             # bucket sub-path for these dumps
 pg_ha_backup_retain_days: 14
+# EVERY database on the cluster, not just the app's — this cluster is shared by clip, vent chat and
+# Keycloak. Until 2026-07-29 this script dumped a single database, and (because app_db_name had been
+# renamed under it) the one it dumped was `keygrip`: a leftover with 0 backends and 0 commits. So the
+# live app data, all of Dendrite's chat history, and keycloak.user_entity — the ONLY copy of every
+# login on id.clip.cool — had never been backed up at all, while three nightly dumps of a dead
+# database sat in B2 looking like a working backup.
+#   - `keygrip` stays in this list on purpose. It is stale and should be dropped, but it is 40 MB of
+#     pre-rename data nobody has audited, and backing it up costs ~12 MB/night. Drop the DATABASE
+#     first, then remove it here — not the other way round.
+#   - `postgres` is excluded: system database, no app data.
+# B2's storage cap is ACCOUNT-wide (the sibling tier was refused uploads with storage_cap_exceeded on
+# 2026-07-26 while its own bucket held 216 MiB), so this list is a spend decision, not just a safety
+# one — hence keeping it explicit rather than enumerating pg_database at runtime.
+pg_ha_backup_databases:
+  - "{{ app_db_name }}"                   # clip — the live app database
+  - "{{ vent_db_name }}"                  # vent chat app
+  - "{{ dendrite_db_name }}"              # Matrix homeserver: all chat history
+  - keycloak                              # every identity on id.clip.cool
+  - keygrip                               # stale pre-rename leftover; see above before removing
+# Size floor a landed dump must clear, per database. `rclone rcat` creates an object from a truncated
+# stream, so without this a broken dump is indistinguishable from a good one until a restore. Well
+# under a real dump here (the smallest, vent, is ~8 MB raw) and far above an empty gzip stream
+# (~20 bytes) or a dump that died just after the header.
+pg_ha_backup_min_bytes: 20000
+# Advisory lock the dump holds for its whole run. roles/drain's guarded auto-reboot tests this same
+# path and skips its window while a dump is in flight (drain_backup_lock). On tmpfs (/run), so it
+# cannot survive a reboot and strand the lock. Moving this path means moving drain_backup_lock too.
+pg_ha_backup_lock: /run/lock/keygrip-pgha-backup.lock
+# Where backup.sh publishes its age metrics for node-exporter's textfile collector. Follows the
+# observability role (same box: pg_ha_backup_host is vent.dog, which is `primary`), with a literal
+# fallback for a tier that runs this role without that one.
+# NOT under /run: these must survive a reboot, or a reboot reads as a vanished backup.
+pg_ha_backup_metrics_dir: "{{ node_exporter_textfile_dir | default('/var/lib/node_exporter/textfile') }}"

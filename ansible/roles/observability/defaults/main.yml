@@ -3,6 +3,11 @@ obs_dir: /opt/keygrip/observability
 prometheus_image: "prom/prometheus:v3.0.1"
 grafana_image: "grafana/grafana:11.4.0"
 node_exporter_image: "prom/node-exporter:v1.8.2"
+# Textfile-collector drop dir: how jobs Prometheus cannot scrape directly publish metrics. The
+# nightly pg_dump (roles/postgres_ha backup.sh) writes its per-database age + B2 usage series here,
+# which is the only monitoring signal that a backup ran at all. Bind-mounted read-only into
+# node-exporter; the writer creates it too, so postgres-ha.yml doesn't depend on this play's order.
+node_exporter_textfile_dir: /var/lib/node_exporter/textfile
 prometheus_retention: "15d"            # cap retention (CLAUDE.md)
 prometheus_bind: "127.0.0.1:9090"
 grafana_bind: "127.0.0.1:3000"          # Tailscale Serve fronts this on :8443
