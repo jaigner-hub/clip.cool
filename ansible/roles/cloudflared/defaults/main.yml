@@ -1,9 +1,32 @@
 ---
-# Standalone cloudflared connector — for the SECOND app node (vent.dog2), whose tunnel
-# (vent-keygrip2) is an origin in the Cloudflare Load Balancer pool (ADR 0016 #3). vent.dog's
-# connector lives in the keycloak stack. cloudflared_image comes from group_vars/dev/vars.yml.
+# cloudflared connectors. cloudflared_image comes from group_vars/dev/vars.yml.
+#
+# TWO TUNNELS, and the split is not arbitrary — a remotely-managed tunnel has ONE ingress config
+# shared by every connector registered to it, so a hostname can only be multi-connector if EVERY box
+# can serve it:
+#
+#   1. the APP tunnel (vent-keygrip2) — clip.cool + id.clip.cool. Both boxes run webapp and a
+#      Keycloak cluster node, so both can serve these. One tunnel, a connector on EACH box, and NO
+#      Load Balancer: Cloudflare spreads traffic across whichever connectors are registered, so
+#      stopping one is a clean drain (roles/drain). The connector IS the origin.
+#   2. the CHAT tunnel (vent-keygrip) — chat.vent.dog + livekit.vent.dog. Dendrite and LiveKit are
+#      SINGLE-ACTIVE on vent.dog; vent.dog2 runs neither. If these hostnames sat on the app tunnel,
+#      Cloudflare would send half their traffic to a box with no vent-web and no LiveKit. So they get
+#      their own tunnel with exactly one connector, on vent.dog only.
+#
+# ⚠️ The tunnel NAMES are historical and now misleading: `vent-keygrip2` is the tunnel that runs on
+# BOTH boxes, and `vent-keygrip` is the vent.dog-only one. They are deliberately NOT renamed —
+# renaming shared-platform names is how the chat app breaks — so go by the mapping above, not by the
+# name. (2026-07-30, when the Cloudflare Load Balancer was retired: it was a paid add-on doing a job
+# one multi-connector tunnel does for free.)
 cloudflared_dir: /opt/keygrip/cloudflared
-# Per-host tunnel token: vent.dog runs the vent-keygrip tunnel (default); vent.dog2 overrides this to
-# the vent-keygrip2 token in inventory host_vars. Each box's tunnel routes id.vent.dog + app.vent.dog
-# to its LOCAL services, and both are origins in the CF Load Balancers.
-cloudflared_token: "{{ vault_cloudflared_token }}"
+
+# The app tunnel's token — the SAME token on both boxes, which is what makes it one tunnel with two
+# connectors rather than a tunnel per box. (This was vent.dog2's own token back when each box had its
+# own tunnel behind the LB; it is now shared.)
+cloudflared_app_token: "{{ vault_cloudflared_token_2 }}"
+
+# The chat tunnel's token. Empty everywhere except vent.dog (set in inventory), where it renders a
+# SECOND connector container. An empty value renders no chat service at all, so vent.dog2 stays a
+# single-connector box.
+cloudflared_chat_token: ""

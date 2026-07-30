@@ -36,7 +36,7 @@ That single decision makes us faster and cheaper than half the field before we a
 | **Async / transcode queue** | ⚠️ **Adapted.** The reference write-up assumes Celery + Redis; **our platform has no Redis broker.** We use **Procrastinate** (Postgres-backed, inherited ADR 0008). Queue split: `transcode` (ffmpeg, on a dedicated `worker-transcode` container, concurrency 1) / `thumbs` (image posters/OCR) / `index` (search + vision). A periodic `reap_stuck_assets` re-queues jobs orphaned by a dead worker (Procrastinate **worker-heartbeat** detection, so long live encodes aren't reaped). |
 | **Transcoding** | **ffmpeg** in a dedicated `worker-transcode` container. **H.264 only** (libx264) — VP9/AV1 were dropped (slow to encode; compression is moot on R2's zero-egress for short clips; H.264 is universal). Renditions downscale to ≤1280px. Re-add AV1 only on AV1-capable HW. |
 | **Search & discovery** | **Meilisearch** or **Typesense** (lightweight, self-hostable, typo-tolerant). Search relevance is where Giphy/Tenor live or die — a SQL `LIKE` is not enough. Runs as its own container on the edge net; Postgres stays the source of truth, the engine is a rebuildable index. |
-| **Edge / HA** | **Cloudflare Tunnel** (origins have no public ports) + **Load Balancer** across both boxes (inherited). |
+| **Edge / HA** | **Cloudflare Tunnel** (origins have no public ports) — **one tunnel with a connector on each box**; **no Load Balancer** (retired 2026-07-30). Connector registration *is* the health signal, so draining a box is `docker compose stop cloudflared`. |
 | **Infra / config** | **Ansible** + **SOPS/age** + Docker (inherited, ADR 0006/0001/0007). Deploy via `ansible/ac`. |
 | **Observability** | Self-hosted **Grafana + Prometheus + Loki + Tempo** (inherited). clip-web/clip-worker traces; transcode metrics are a key SLO surface. |
 
@@ -97,9 +97,9 @@ the shared Keycloak realm. New components for clip (not yet rolled into Ansible)
 - **R2 bucket + credentials** (replaces the DO Spaces plan) — SOPS secrets + app env.
 - **ffmpeg transcode worker** image/role (the heavy `transcode` queue tier).
 - **Meilisearch/Typesense** container + role.
-- **Public domain `clip.cool` at the apex** — needs the `clip.cool` Cloudflare zone and a
-  tunnel-ingress / Load-Balancer cutover (the `cloudflare` role is currently single-zone on
-  `vent.dog`; the app's OIDC redirect URIs already point at `https://clip.cool/*`).
+- ~~**Public domain `clip.cool` at the apex**~~ — **done.** `clip.cool` + `id.clip.cool` are proxied
+  CNAMEs to the two-connector app tunnel; the `cloudflare` role now manages both zones (chat ingress on
+  `vent.dog`, app ingress + clip.cool CNAMEs).
 
 See [`docs/migration-from-keygrip.md`](./migration-from-keygrip.md) for what was ported, renamed,
 and what remains.

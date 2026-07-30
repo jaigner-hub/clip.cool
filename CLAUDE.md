@@ -15,7 +15,8 @@ platform.
 > renamed `keygrip → clip`, and the first product slice ships: the **`clips`** app (image ingest →
 > R2 → transcode → OCR/vision → Typesense search; in-app meme builder; video + captioning).
 > The keygrip CMS (`recommendations`, `tenancy`) has been **removed**; the Django package stays
-> named `keygrip` for now. The app serves on the **`clip.cool` apex** (HA via a CF Load Balancer;
+> named `keygrip` for now. The app serves on the **`clip.cool` apex** (HA via one two-connector
+> Cloudflare Tunnel — the Load Balancer was retired 2026-07-30;
 > `app.vent.dog` still dual-served during the transition). R2 + Typesense are wired.
 > **Trust [`docs/migration-from-keygrip.md`](./docs/migration-from-keygrip.md) for current state.**
 >
@@ -40,7 +41,7 @@ clip and the chat app share **one platform** on the vent.dog pair. The rename fr
   Keycloak **`keygrip` realm** (the `vent-web` chat client lives inside it), the **`keygrip-pgha`**
   Patroni cluster + `/keygrip/` etcd namespace, the **`keygrip-edge`** Docker network, tailscale
   hosts **`vent-keygrip` / `vent-keygrip2`**, **`/opt/keygrip/*`** install paths, the observability
-  stack, cloudflared tunnels, the `keygrip` LB pool, the `keygrip-safe-reboot` units, the
+  stack, cloudflared tunnels, the `keygrip-safe-reboot` units, the
   `keygrip-ansible` / `keygrip-patroni` images, and realm login branding.
 - **App / web tier — renamed to `clip`** (keygrip's footprint we replaced): the **`clip_web`** role +
   **`clip-web.yml`** playbook, the **`clip`** DB/role, the **`clip-web` / `clip-kc-admin` /
@@ -64,7 +65,7 @@ Inherited from keygrip unless flagged. Rationale for inherited decisions lives i
 | **Database** | **Postgres** — the shared self-hosted **HA cluster** (Patroni + etcd, ADR 0016). The `clip` DB/role replaces `keygrip`. |
 | **Async / transcode** | ⚠️ **Adapted.** No Redis broker on this platform — use **Procrastinate** (Postgres-backed, ADR 0008), **not** Celery. Queues: `transcode` (ffmpeg, heavy) / `thumbs` / `index` (search + dedup + OCR). Heavy AV1 encodes likely a dedicated worker tier. |
 | **Search** | **Meilisearch** or **Typesense** (self-hosted, typo-tolerant). Postgres is source of truth; the engine is a rebuildable index. |
-| **Edge / HA** | **Cloudflare Tunnel** (no public origin ports) + **Load Balancer** across both boxes. |
+| **Edge / HA** | **Cloudflare Tunnel**, no public origin ports — **one tunnel (`vent-keygrip2`) with a connector on both boxes**, which is what makes `clip.cool` HA. **No Load Balancer** (retired 2026-07-30, `bin/cf-retire-lb`): a dead origin sheds via the tunnel's own connector health, not a pool monitor, and failing over costs nothing. ⚠️ The similarly-named **`vent-keygrip`** tunnel is vent.dog-only and serves **chat + livekit**, which cannot be multi-connector (single-active Dendrite/LiveKit, and one remotely-managed tunnel shares one ingress config across all its connectors) — never drain it. See `roles/cloudflared/defaults`. |
 | **Infra / config** | **Ansible** + **SOPS/age** + Docker; run via `ansible/ac` (ADR 0006/0001/0007). |
 | **Secrets** | **SOPS**-encrypted (age) in git, decrypted to **tmpfs** at deploy. Never commit a plaintext secret. Edit via `bin/secrets`. The dev age key is reused from keygrip. |
 | **Observability** | Self-hosted **Grafana + Prometheus + Loki + Tempo**. clip-web/clip-worker traces; transcode throughput/latency is a key SLO. |
@@ -72,7 +73,7 @@ Inherited from keygrip unless flagged. Rationale for inherited decisions lives i
 ## Infrastructure
 
 - **Dev pair (IONOS, tailnet):** **vent.dog** (`100.106.141.112`) + **vent.dog2** (`100.110.200.36`),
-  Ubuntu 24.04, the HA pair behind the Cloudflare LB. clip-web deploys to both; single-instance
+  Ubuntu 24.04, the HA pair behind the app tunnel's two connectors. clip-web deploys to both; single-instance
   services (Keycloak, observability, the chat app) live on vent.dog only. Inventory:
   `ansible/inventory.yml` — it **only** targets these boxes.
 - **Deploy tooling — `./ac`:** all Ansible runs go through `ansible/ac`, a wrapper that runs
@@ -135,7 +136,7 @@ automated test/secret-scan gate** — be careful committing.
 - **Self-healing**: a periodic `reap_stuck_assets` task re-queues jobs orphaned by a dead worker,
   detected via Procrastinate **worker heartbeats** (so a long *live* encode is never falsely reaped),
   bounded by `Asset.transcode_attempts`.
-- **Deploys are decoupled** (see below) — recreate the webapp first (fast, LB-drained), workers
+- **Deploys are decoupled** (see below) — recreate the webapp first (fast, connector-drained), workers
   separately; `clip-web` deploys in ~1 min, never blocked on an encode.
 
 ## Deploys (`./rolling-deploy.sh` is legacy — use the playbook)

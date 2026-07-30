@@ -154,6 +154,41 @@ wait on the `clip.cool` apex DNS. This unblocks the whole edge end-to-end; the a
   per-service `--build` leaves the workers on stale code (a bug we hit: workers silently ran old code).
 - Migrations `0009`–`0012`: `Asset.crop`, `caption_burning`, `trim_start/_end`, `transcode_attempts`.
 
+## Also landed (edge: Load Balancer retired, drain rewritten around the tunnel) — 2026-07-30
+
+- **The Cloudflare Load Balancer is gone.** `clip.cool` + `id.clip.cool` are now proxied CNAMEs to
+  **one tunnel with a connector on each box** (`vent-keygrip2`), which gives the same HA for free:
+  connector registration *is* the health signal, so a dead box sheds without a pool monitor. Retired
+  with **`bin/cf-retire-lb`** (idempotent, dry-run by default) — 2 LB hostnames + the shared `keygrip`
+  pool + 2 now-unreferenced `keygrip app` monitors deleted.
+  ⚠️ **The Load Balancing SUBSCRIPTION stays active** — 14 other load balancers across 7 zones
+  (amsfusion.com and the rest of the AMS sites) run on the *same Cloudflare account* off a separate
+  `ams-ionos` pool. Cancelling the add-on in the dashboard would take those sites down. This removed
+  2 hostnames + 2 origins from the bill, not the line item. The script proves that separation before
+  every delete (pool origins must match exactly; no LB in *any* zone may still reference the pool;
+  a monitor is only deleted when no pool references it) rather than trusting it.
+- **The two tunnels now have distinct jobs**, which is *architecturally forced*, not a preference: a
+  remotely-managed tunnel shares **one ingress config across all its connectors**, and chat/livekit are
+  single-active (Dendrite, LiveKit), so they cannot be multi-connector.
+  - `vent-keygrip2` — **the app tunnel**, connector on **both** boxes: `clip.cool`, `id.clip.cool`.
+  - `vent-keygrip` — **the chat tunnel**, vent.dog only: `chat.vent.dog`, `livekit.vent.dog`.
+
+  Both connectors run in the one `keygrip-cloudflared` compose project as services `cloudflared` and
+  `cloudflared-chat`. Both boxes now share the *same* app tunnel token (the per-box override is gone).
+- **Drain is local again.** `drain.sh` was rewritten (ported from keygrip's #159–#161): it stops **the
+  `cloudflared` service by name** — never `cloudflared-chat`, which has no peer to fail over to — and
+  the Cloudflare API is only the *witness* ("did my connections go?", "does the peer still have any?").
+  A dead token now degrades an observation instead of breaking the drain.
+- **This fixed three things that had been broken for the tier's whole life.** The old drain drove the LB
+  pool API, and the account token had been rotated outside the repo, so the call 401'd — and since that
+  call *was* the drain: `drain.sh check` failed, `rolling-deploy.sh` aborted before deploying anything,
+  and `reboot_safe()` (same check) made the guarded auto-reboot timer refuse **every** window, so kernel
+  updates never landed. Read scope on Account → Cloudflare Tunnel is all the boxes need now.
+- **Verified, not assumed.** `drain.sh check` exits 0 on both boxes. A live drain + undrain of
+  vent.dog2 served **70/70** samples of `clip.cool` (200), `id.clip.cool` (302) and `chat.vent.dog`
+  (200) with zero failures; stopping vent.dog's app connector left `cloudflared-chat` up and
+  chat/livekit at 200 for 40/40 samples. Connector counts confirmed 1 (chat) and 2 (app) after.
+
 ## Remaining (not done yet)
 
 1. **HSTS ramp** on the clip.cool zone (currently `max_age: 300`; raise once verified, then
@@ -163,6 +198,7 @@ wait on the `clip.cool` apex DNS. This unblocks the whole edge end-to-end; the a
    worth it on AV1-capable HW if bandwidth ever becomes the driver.)
 3. **Native Snipper (2c)** — `clip-snipper` device-flow client + desktop push (the in-browser
    recorder already covers the web case; native is for higher-fidelity source capture).
-4. **Cosmetic doc refs** to `keygrip_web` remain in comments (`postgres_ha` README, a few
-   playbook/inventory comments, prometheus.yml, observability alert-group names). Non-blocking.
+4. **Cosmetic doc refs** to `keygrip_web` remain in comments (a few playbook/inventory comments,
+   prometheus.yml, observability alert-group names). Non-blocking. (The `postgres_ha` README was
+   rewritten on 2026-07-30 — its `rolling-deploy.sh` section is current.)
 5. **CI / docs** — `.github/` (CI, dependabot), `.githooks/`, ADRs — a follow-up pass.

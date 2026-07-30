@@ -19,12 +19,20 @@ all:
                                           # MagicDNS name vent-keygrip works from tailnet devices,
                                           # but the container resolves via the IP.
           ansible_user: jeff              # non-root admin; privileged tasks use become (sudo)
-        vent.dog2:                        # HA pair box (IONOS) — second origin behind the CF LB +
-                                          # second Postgres data node (Patroni/etcd, ADR 0016).
+          public_ip: 74.208.117.211       # how this box's connector identifies itself to the tunnel
+                                          # API (`origin_ip`) — roles/drain uses it to confirm a drain.
+          # This box ALSO runs the chat tunnel's connector (chat/livekit.vent.dog), because Dendrite and
+          # LiveKit are single-active here. vent.dog2 leaves this empty and renders no chat connector.
+          cloudflared_chat_token: "{{ vault_cloudflared_token }}"
+        vent.dog2:                        # HA pair box (IONOS) — second connector on the shared app
+                                          # tunnel + second Postgres data node (Patroni/etcd, ADR 0016).
           ansible_host: 100.110.200.36    # tailnet IP; MagicDNS name vent-keygrip2.
           ansible_user: jeff
+          public_ip: 74.208.34.164        # connector origin_ip (see vent.dog)
           tailscale_hostname: vent-keygrip2   # default is vent-keygrip (vent.dog); override here.
-          cloudflared_token: "{{ vault_cloudflared_token_2 }}"   # vent.dog2's tunnel (vent-keygrip2)
+          # NOTE: no cloudflared token override any more. Both boxes run the SAME app-tunnel token
+          # (roles/cloudflared cloudflared_app_token) — one tunnel, two connectors, no Load Balancer.
+          # This used to pin vent.dog2 to its own tunnel so the LB could fan traffic across the two.
           # vent.dog2 now runs its OWN Keycloak (HA cluster node) → the app uses the LOCAL keycloak:8080
           # (the keygrip_web default), so no keycloak_internal_base override here anymore.
           # Observability stack runs on vent.dog only — vent.dog2 pushes telemetry to it over the

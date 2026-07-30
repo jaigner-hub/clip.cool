@@ -1,12 +1,14 @@
 ---
-- name: Resolve this box's drain identity (origin/Patroni member + peer)
-  ansible.builtin.set_fact:
-    drain_identity: "{{ drain_host_identity[inventory_hostname] }}"
-
+# The assert comes FIRST on purpose: the set_fact below indexes the map, so on an unlisted host it
+# would abort with a raw Jinja KeyError before the friendly message ever ran.
 - name: Fail if this host has no drain identity
   ansible.builtin.assert:
     that: inventory_hostname in drain_host_identity
-    fail_msg: "No drain_host_identity for {{ inventory_hostname }}."
+    fail_msg: "No drain_host_identity for {{ inventory_hostname }} — add it in roles/drain/defaults."
+
+- name: Resolve this box's drain identity (Patroni member + peer)
+  ansible.builtin.set_fact:
+    drain_identity: "{{ drain_host_identity[inventory_hostname] }}"
 
 - name: Install jq (drain.sh parses the CF API)
   ansible.builtin.apt:

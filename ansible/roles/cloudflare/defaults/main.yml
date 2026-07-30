@@ -8,25 +8,18 @@ cf_account_id: "713923b79dee34635d5a5a1d8da34fbc"
 # recreated tunnel a new tunnel id. Hardcoding them meant the DNS tasks silently wrote to a dead
 # zone after vent.dog was removed + re-added. Looking them up by name makes the role self-heal.
 cf_zone_name: "vent.dog"
+# ⚠️ `vent-keygrip` is the CHAT tunnel — vent.dog ONLY, one connector. Despite the name, it is NOT the
+# tunnel the app rides; that is `vent-keygrip2` (cf_app_tunnel_name below), which runs a connector on
+# BOTH boxes. The names are historical and deliberately not renamed — see roles/cloudflared/defaults.
 cf_tunnel_name: "vent-keygrip"
 
-# Tunnel ingress — the catch-all (http_status:404) is appended automatically.
+# CHAT tunnel ingress — the catch-all (http_status:404) is appended automatically.
+# Vent chat is single-active on vent.dog (Dendrite/LiveKit can't run two nodes yet). That is exactly
+# why it needs its OWN tunnel: a remotely-managed tunnel shares one ingress config across every
+# connector, so putting these hostnames on the two-connector app tunnel would send half their traffic
+# to vent.dog2, which runs neither service. vent-web serves the SPA and reverse-proxies
+# /api,/_matrix,/health to vent-server; auth is at Keycloak so it's public.
 cf_ingress:
-  - hostname: "id.clip.cool"
-    service: "http://host.docker.internal:8080"   # Keycloak is host-networked (HA cluster)
-  # Django /admin is PUBLIC (same-origin, staff via Keycloak SSO session). The break-glass
-  # *password* form is host-gated in the app itself (web.views.admin_login_gate via
-  # DJANGO_BREAK_GLASS_LOGIN_HOSTS) to the Tailscale Serve host only — ADR 0002 holds without a
-  # tunnel-level 404.
-  # Block /metrics publicly (more-specific rule first); Prometheus scrapes it over the edge net.
-  - hostname: "clip.cool"
-    path: "^/metrics"
-    service: "http_status:404"
-  - hostname: "clip.cool"
-    service: "http://webapp:8000"
-  # Vent chat — single active backend on vent.dog (Dendrite/LiveKit can't run two nodes yet), so these
-  # are CNAMEs to THIS tunnel (cf_dns_hostnames), NOT load-balanced across both boxes. vent-web serves
-  # the SPA and reverse-proxies /api,/_matrix,/health to vent-server; auth is at Keycloak so it's public.
   - hostname: "chat.vent.dog"
     service: "http://vent-web:80"
   # LiveKit signaling (wss). Media is direct UDP to the box's public IP (ufw-opened); only the
@@ -60,38 +53,41 @@ cf_hsts:
   preload: false              # set LAST, at public launch — effectively irreversible
   nosniff: false              # nosniff is owned by the origins, not the edge
 
-# --- Load Balancers (ADR 0016 #3 + Keycloak HA): clip.cool + id.clip.cool across BOTH boxes ---
-# Keep tunnels (ADR 0004 no-public-ports): origins are <tunnel-uuid>.cfargotunnel.com. ONE shared
-# pool serves every hostname — no per-origin Host override, so CF passes the client's Host to the
-# tunnel, which routes by hostname (clip.cool->webapp, id.clip.cool->keycloak). The LBs themselves
-# live in the clip.cool ZONE (cf_apex_lb_hostnames, apex block below); the old vent.dog-zone LBs
-# (app.vent.dog/id.vent.dog) were retired. Stays within Cloudflare's 4-origin cap (2 tunnels, 1 pool).
-cf_lb_enabled: true
-cf_lb_hostnames: []                      # vent.dog-zone LBs retired; clip.cool + id.clip.cool are in the apex block
-cf_lb_pool_name: "keygrip"
-cf_lb_monitor_host: "clip.cool"          # the monitor checks the app's /readyz (DB + local Keycloak)
-cf_lb_monitor_path: "/readyz"            # a box with a dead DB or Keycloak is drained from the pool.
-cf_tunnel2_name: "vent-keygrip2"         # the 2nd app node's tunnel
-cf_lb_origins:                           # tunnel addresses resolved at runtime from these names
-  - { name: "vent-keygrip", tunnel: "vent-keygrip" }
-  - { name: "vent-keygrip2", tunnel: "vent-keygrip2" }
-# Ingress for the 2nd tunnel — clip.cool (app) + id.clip.cool (Keycloak HA) route to vent.dog2's
-# LOCAL services. Each is a CF Load Balancer origin across both tunnels.
-cf_ingress2:
+# --- The APP tunnel: clip.cool + id.clip.cool across BOTH boxes, with NO Load Balancer ---
+# Retired the Cloudflare Load Balancer on 2026-07-30. It was a paid add-on doing a job that ONE
+# multi-connector tunnel does for free: `vent-keygrip2` now runs a connector on each box, both serving
+# this same ingress against their OWN local services, so Cloudflare spreads traffic across whichever
+# connectors are registered and stopping one is a clean drain (roles/drain). Before, each box had its
+# own tunnel and an LB fanned traffic across the two as pool origins.
+#
+# What that trade actually costs, so nobody re-discovers it as a surprise: the LB had a MONITOR probing
+# /readyz, which pulled a box whose app was broken even though its connector was healthy. Connector
+# registration can't see that — a box serving 502s keeps its share of traffic. Partial mitigation lives
+# in roles/drain (`undrain` refuses to register a connector whose local /readyz isn't 200).
+#
+# ⚠️ The Load Balancing SUBSCRIPTION is still active and must stay: 14 other load balancers across 8
+# zones on this account (amsfusion.com and the other AMS sites) run off the separate `ams-ionos` pool.
+# Cancelling the add-on would take all of them down. Retiring these two LBs removes 2 LB hostnames and
+# 2 origins from the bill, nothing more. Teardown is `bin/cf-retire-lb`, which asserts that separation
+# object by object before it deletes anything.
+cf_app_tunnel_name: "vent-keygrip2"      # ⚠️ the two-connector tunnel, despite the "2" in the name
+cf_app_zone_name: "clip.cool"
+# Ingress for the app tunnel. IDENTICAL on both connectors by definition (one tunnel, one config) —
+# each resolves these service names against its own box: `webapp` on the shared keygrip-edge network,
+# and host-networked Keycloak via host.docker.internal.
+# Django /admin is PUBLIC (same-origin, staff via Keycloak SSO session). The break-glass *password*
+# form is host-gated in the app itself (web.views.admin_login_gate via DJANGO_BREAK_GLASS_LOGIN_HOSTS)
+# to the Tailscale Serve host only — ADR 0002 holds without a tunnel-level 404.
+# /metrics is 404'd publicly (more-specific rule FIRST); Prometheus scrapes it over the edge net.
+cf_app_ingress:
   - { hostname: "clip.cool", path: "^/metrics", service: "http_status:404" }
   - { hostname: "clip.cool", service: "http://webapp:8000" }
   - { hostname: "id.clip.cool", service: "http://host.docker.internal:8080" }   # host-networked Keycloak
-
-# --- clip.cool apex cutover ---
-# A 3rd Load Balancer named "clip.cool", created in the clip.cool ZONE, pointing at the SAME shared
-# `keygrip` pool — so the apex is HA across both boxes exactly like app.vent.dog (CF flattens the
-# apex). Dual-served with app.vent.dog during the cutover; drop app.vent.dog later. Needs the API
-# token to carry DNS/LB edit on the clip.cool zone.
-cf_apex_enabled: true
-cf_apex_zone_name: "clip.cool"
-cf_apex_lb_hostnames:        # all created in the clip.cool zone, on the shared `keygrip` pool
+# Proxied CNAMEs -> the app tunnel, in the clip.cool zone. These REPLACED the two load balancers.
+# The apex works because Cloudflare flattens a proxied CNAME at the zone root.
+cf_app_dns_hostnames:
   - "clip.cool"
-  - "id.clip.cool"           # Keycloak issuer host (KC_HOSTNAME migration from id.vent.dog)
+  - "id.clip.cool"           # Keycloak issuer host
 
 # --- Cloudflare Access (Zero Trust) ---
 # Token now carries the "Access: Apps and Policies — Edit" scope, so this is ON.

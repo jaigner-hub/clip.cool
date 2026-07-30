@@ -1,17 +1,45 @@
-# Rendered by Ansible (roles/cloudflared). A single tunnel connector on the shared edge net so it can
-# reach the app (webapp:8000). Ingress is remotely-managed (set via the cloudflare role / CF API).
+# Rendered by Ansible (roles/cloudflared). Connectors on the shared edge net so they can reach the
+# app (webapp:8000) and the chat SPA (vent-web:80). Ingress is remotely-managed (cloudflare role).
+#
+# Which services render here is per-box — see roles/cloudflared/defaults/main.yml for why the app and
+# chat hostnames cannot share one tunnel.
 name: keygrip-cloudflared
 
 services:
+  # The APP tunnel (clip.cool + id.clip.cool) — the same tunnel on both boxes, one connector each.
+  # Keep this service named `cloudflared`: roles/drain stops it BY NAME to drain this box, and it must
+  # never stop the chat connector below (chat has no peer to fail over to, and an app deploy doesn't
+  # touch it).
   cloudflared:
     image: {{ cloudflared_image }}
     restart: unless-stopped
     command: ["tunnel", "--no-autoupdate", "run"]
+    # Draining this box = stopping this container: the connector deregisters and Cloudflare routes the
+    # app hostnames to the peer's connector (roles/drain). cloudflared's own --grace-period is 30s, so
+    # Docker's 10s default SIGKILLs it mid-drain and severs in-flight requests — exactly what draining
+    # is meant to avoid. Must stay > that grace period, and > drain_connector_stop_timeout.
+    stop_grace_period: 45s
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:?}
+      TUNNEL_TOKEN: ${CLOUDFLARED_APP_TOKEN:?}
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # reach host-networked Keycloak (id.vent.dog -> :8080)
+      - "host.docker.internal:host-gateway"   # reach host-networked Keycloak (id.clip.cool -> :8080)
     networks: [edge]   # edge -> reach webapp:8000
+{% if cloudflared_chat_token | default('') | length > 0 %}
+
+  # The CHAT tunnel (chat.vent.dog + livekit.vent.dog) — vent.dog ONLY, because Dendrite and LiveKit
+  # are single-active here. Deliberately NOT drained: stopping it would take chat DOWN rather than move
+  # it, since there is no second connector to receive the traffic.
+  cloudflared-chat:
+    image: {{ cloudflared_image }}
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    stop_grace_period: 45s
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_CHAT_TOKEN:?}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # LiveKit signaling is host-networked (:7880)
+    networks: [edge]   # edge -> reach vent-web:80
+{% endif %}
 
 networks:
   edge:

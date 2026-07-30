@@ -2,14 +2,17 @@
 # rolling-deploy.sh — zero-downtime rolling deploy across the HA pair.
 #
 # For each host, ONE AT A TIME (never two drained at once):
-#   1. graceful drain  — drain.sh hands the Postgres leader off (Patroni switchover)
-#                        and disables the CF Load-Balancer origin, so no user traffic
-#                        and no ungraceful DB failover hit this box during the deploy.
+#   1. graceful drain  — drain.sh stops this box's cloudflared connector (so Cloudflare routes
+#                        the app tunnel to the peer) and hands the Postgres leader off (Patroni
+#                        switchover), so neither user traffic nor an ungraceful DB failover hits
+#                        this box during the deploy. There is no Load Balancer as of 2026-07-30;
+#                        the connector IS the origin.
 #   2. deploy          — ./ac ansible-playbook <playbook> --limit <host>
 #   3. health-gate     — wait for the app's /readyz to return 200 on this box.
-#   4. undrain         — re-enable the CF origin (drain.sh re-checks /readyz first).
+#   4. undrain         — restart the connector (drain.sh re-checks local /readyz first, and
+#                        refuses to re-register a box that is not serving 200).
 # The peer keeps serving throughout. If a box fails to deploy or never goes healthy,
-# it is left DRAINED (out of the pool) and the script aborts for a human to look.
+# it is left DRAINED (connector stopped) and the script aborts for a human to look.
 #
 # Usage (run from ansible/, next to ./ac):
 #   ./rolling-deploy.sh keygrip-web.yml
@@ -66,23 +69,23 @@ log "all healthy. playbooks: $*"
 for h in "${HOSTS[@]}"; do
   log "================  $h  ================"
 
-  log "$h: draining (Patroni leader switchover + CF LB disable)"
+  log "$h: draining (stop cloudflared connector + Patroni leader switchover)"
   ssh -o ConnectTimeout=20 "$h" "sudo $DRAIN drain" || die "$h: drain failed (nothing deployed yet)"
 
   for pb in "$@"; do
     log "$h: deploying playbooks/$pb"
     if ! ./ac ansible-playbook "playbooks/$pb" --limit "$h"; then
-      die "$h: playbook '$pb' FAILED — box left DRAINED (out of the pool) for inspection"
+      die "$h: playbook '$pb' FAILED — box left DRAINED (connector stopped) for inspection"
     fi
   done
 
   log "$h: waiting for /readyz=200 (timeout ${READYZ_TIMEOUT}s)"
   wait_ready "$h" || die "$h: never returned /readyz=200 — box left DRAINED for inspection"
 
-  log "$h: undraining (back into the CF pool)"
+  log "$h: undraining (restarting the connector)"
   ssh -o ConnectTimeout=20 "$h" "sudo $DRAIN undrain" || die "$h: undrain failed — re-enable manually: ssh $h sudo $DRAIN undrain"
 
-  log "$h: ✅ deployed and back in the pool"
+  log "$h: ✅ deployed and taking traffic again"
 done
 
 log "✅ rolling deploy complete across: ${HOSTS[*]}"

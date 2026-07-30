@@ -243,163 +243,99 @@
       when: item.json.result | length == 0
       changed_when: true   # uri POST doesn't infer changed; this task only runs on create
 
-# --- Load Balancer: app.vent.dog across both app nodes' tunnels (ADR 0016 #3) ---
-- name: Cloudflare Load Balancer (2nd tunnel ingress + monitor + pool + LB)
-  when: cf_lb_enabled | bool
+# --- The APP tunnel: clip.cool + id.clip.cool, one tunnel with a connector on BOTH boxes ---
+# This block replaced the Cloudflare Load Balancer (retired 2026-07-30, see defaults/main.yml). It
+# applies the app ingress to `vent-keygrip2` and points the clip.cool-zone hostnames straight at that
+# tunnel — no pool, no monitor, no LB. Failover is the tunnel's own connector health.
+- name: App tunnel (ingress + clip.cool-zone CNAMEs, no Load Balancer)
   delegate_to: localhost
   run_once: true
   no_log: true
   block:
-    - name: Resolve the 2nd app-node tunnel id by name
+    - name: Resolve the app tunnel id by name
       ansible.builtin.uri:
-        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/cfd_tunnel?name={{ cf_tunnel2_name }}&is_deleted=false"
+        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/cfd_tunnel?name={{ cf_app_tunnel_name }}&is_deleted=false"
         method: GET
         headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-      register: cf_tunnel2_lookup
+      register: cf_app_tunnel_lookup
 
-    - name: Pin the 2nd tunnel id
-      ansible.builtin.set_fact:
-        cf_tunnel2_id: "{{ cf_tunnel2_lookup.json.result[0].id }}"
-
-    - name: Apply the 2nd tunnel ingress (app.vent.dog -> webapp:8000)
-      ansible.builtin.uri:
-        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/cfd_tunnel/{{ cf_tunnel2_id }}/configurations"
-        method: PUT
-        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-        body_format: json
-        body: { config: { ingress: "{{ cf_ingress2 + [{'service': 'http_status:404'}] }}" } }
-      changed_when: true
-
-    - name: List load-balancer monitors
-      ansible.builtin.uri:
-        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/load_balancers/monitors"
-        method: GET
-        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-      register: cf_monitors
-
-    - name: Create the app monitor if absent
-      ansible.builtin.uri:
-        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/load_balancers/monitors"
-        method: POST
-        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-        body_format: json
-        body:
-          type: https
-          method: GET
-          path: "{{ cf_lb_monitor_path }}"
-          port: 443
-          expected_codes: "200"
-          interval: 60
-          timeout: 5
-          retries: 2
-          header: { Host: ["{{ cf_lb_monitor_host }}"] }
-          description: "keygrip app {{ cf_lb_monitor_path }}"
-        status_code: [200, 201]
-      when: ('keygrip app ' ~ cf_lb_monitor_path) not in (cf_monitors.json.result | map(attribute='description') | list)
-      changed_when: true
-
-    - name: Re-read monitors + pin the monitor id
-      ansible.builtin.uri:
-        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/load_balancers/monitors"
-        method: GET
-        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-      register: cf_monitors2
-    - ansible.builtin.set_fact:
-        cf_monitor_id: "{{ (cf_monitors2.json.result | selectattr('description', 'equalto', 'keygrip app ' ~ cf_lb_monitor_path) | first).id }}"
-
-    - name: List pools + pin the pool id (by name)
-      ansible.builtin.uri:
-        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/load_balancers/pools"
-        method: GET
-        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-      register: cf_pools
-    - ansible.builtin.set_fact:
-        cf_pool_id: "{{ (cf_pools.json.result | selectattr('name', 'equalto', cf_lb_pool_name) | first).id }}"
-
-    - name: Reconcile the pool — tunnel origins (NO Host override) + monitor
-      # No per-origin Host header: CF passes the CLIENT's Host to the tunnel, so this ONE pool serves
-      # every cf_lb_hostnames LB (app.vent.dog -> webapp, id.vent.dog -> keycloak) — keeps us under the
-      # 4-origin cap.
-      ansible.builtin.uri:
-        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/load_balancers/pools/{{ cf_pool_id }}"
-        method: PUT
-        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-        body_format: json
-        body:
-          name: "{{ cf_lb_pool_name }}"
-          enabled: true
-          monitor: "{{ cf_monitor_id }}"
-          origins:
-            - { name: "vent-keygrip", address: "{{ cf_tunnel_id }}.cfargotunnel.com", enabled: true }
-            - { name: "vent-keygrip2", address: "{{ cf_tunnel2_id }}.cfargotunnel.com", enabled: true }
-      changed_when: true
-
-    - name: List zone load balancers
-      ansible.builtin.uri:
-        url: "{{ cf_api }}/zones/{{ cf_zone_id }}/load_balancers"
-        method: GET
-        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-      register: cf_lbs
-
-    - name: Create each load balancer (app.vent.dog + id.vent.dog) on the shared pool if absent
-      ansible.builtin.uri:
-        url: "{{ cf_api }}/zones/{{ cf_zone_id }}/load_balancers"
-        method: POST
-        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-        body_format: json
-        body:
-          name: "{{ item }}"
-          default_pools: ["{{ cf_pool_id }}"]
-          fallback_pool: "{{ cf_pool_id }}"
-          proxied: true
-          enabled: true
-          steering_policy: "off"
-        status_code: [200, 201]
-      loop: "{{ cf_lb_hostnames }}"
-      when: item not in (cf_lbs.json.result | map(attribute='name') | list)
-      changed_when: true
-
-    # --- clip.cool apex: a 3rd LB on the SAME shared pool, but in the clip.cool ZONE ---
-    - name: Resolve the clip.cool (apex) zone id
-      ansible.builtin.uri:
-        url: "{{ cf_api }}/zones?name={{ cf_apex_zone_name }}"
-        method: GET
-        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-      register: cf_apex_zone_lookup
-      when: cf_apex_enabled | bool
-
-    - name: Fail clearly if the apex zone isn't on the account / token can't see it
+    - name: Fail clearly if the app tunnel doesn't exist
       ansible.builtin.assert:
-        that: cf_apex_zone_lookup.json.result | length > 0
+        that: cf_app_tunnel_lookup.json.result | length > 0
         fail_msg: >-
-          Apex zone '{{ cf_apex_zone_name }}' not found on account {{ cf_account_id }}
-          (or the API token lacks scope on it). Activate the zone + grant the token DNS/LB edit.
-      when: cf_apex_enabled | bool
+          Tunnel '{{ cf_app_tunnel_name }}' not found on account {{ cf_account_id }}.
+          This is the tunnel BOTH boxes' connectors register to — without it the app has no ingress.
 
-    - name: List load balancers in the apex zone
+    - name: Pin the app tunnel id
+      ansible.builtin.set_fact:
+        cf_app_tunnel_id: "{{ cf_app_tunnel_lookup.json.result[0].id }}"
+
+    - name: Read the app tunnel's current configuration
       ansible.builtin.uri:
-        url: "{{ cf_api }}/zones/{{ cf_apex_zone_lookup.json.result[0].id }}/load_balancers"
+        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/cfd_tunnel/{{ cf_app_tunnel_id }}/configurations"
         method: GET
         headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
-      register: cf_apex_lbs
-      when: cf_apex_enabled | bool
+      register: cf_app_cfg_now
 
-    - name: Create the apex-zone load balancers (clip.cool + id.clip.cool) on the shared pool if absent
+    - name: Apply the app tunnel ingress
       ansible.builtin.uri:
-        url: "{{ cf_api }}/zones/{{ cf_apex_zone_lookup.json.result[0].id }}/load_balancers"
+        url: "{{ cf_api }}/accounts/{{ cf_account_id }}/cfd_tunnel/{{ cf_app_tunnel_id }}/configurations"
+        method: PUT
+        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
+        body_format: json
+        body: { config: { ingress: "{{ cf_app_ingress + [{'service': 'http_status:404'}] }}" } }
+      # Compare against what is live so a no-op run reports ok, not changed. Hostname+service only —
+      # the API echoes back extra keys (originRequest defaults) that would make any diff look changed.
+      changed_when: >
+        (cf_app_cfg_now.json.result.config.ingress | default([]) | map(attribute='hostname', default='') | list)
+          != ((cf_app_ingress + [{'service': 'http_status:404'}]) | map(attribute='hostname', default='') | list)
+        or (cf_app_cfg_now.json.result.config.ingress | default([]) | map(attribute='service', default='') | list)
+          != ((cf_app_ingress + [{'service': 'http_status:404'}]) | map(attribute='service', default='') | list)
+
+    - name: Resolve the app (clip.cool) zone id
+      ansible.builtin.uri:
+        url: "{{ cf_api }}/zones?name={{ cf_app_zone_name }}"
+        method: GET
+        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
+      register: cf_app_zone_lookup
+
+    - name: Fail clearly if the app zone isn't on the account / the token can't see it
+      ansible.builtin.assert:
+        that: cf_app_zone_lookup.json.result | length > 0
+        fail_msg: >-
+          Zone '{{ cf_app_zone_name }}' not found on account {{ cf_account_id }} (or the API token
+          lacks scope on it). Grant the token Zone -> DNS -> Edit on {{ cf_app_zone_name }}.
+
+    - name: Pin the app zone id
+      ansible.builtin.set_fact:
+        cf_app_zone_id: "{{ cf_app_zone_lookup.json.result[0].id }}"
+
+    - name: Look up the app hostnames' existing CNAMEs
+      ansible.builtin.uri:
+        url: "{{ cf_api }}/zones/{{ cf_app_zone_id }}/dns_records?type=CNAME&name={{ item }}"
+        method: GET
+        headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
+      loop: "{{ cf_app_dns_hostnames }}"
+      register: cf_app_dns_lookup
+
+    # Create-if-absent only, deliberately: a hostname that is still a LOAD BALANCER has no CNAME to
+    # find, and CF will not let a DNS record and an LB own the same name. So this task CANNOT perform
+    # the cutover — it would just fail with "record already exists" against the LB. `bin/cf-retire-lb`
+    # does the swap (delete LB, create CNAME, back to back, to keep the gap to about a second); this
+    # task is what keeps the record in place afterwards.
+    - name: Ensure proxied CNAMEs point the app hostnames at the app tunnel
+      ansible.builtin.uri:
+        url: "{{ cf_api }}/zones/{{ cf_app_zone_id }}/dns_records"
         method: POST
         headers: { Authorization: "Bearer {{ vault_cloudflare_api_token }}" }
         body_format: json
         body:
-          name: "{{ item }}"
-          default_pools: ["{{ cf_pool_id }}"]
-          fallback_pool: "{{ cf_pool_id }}"
+          type: CNAME
+          name: "{{ item.item }}"
+          content: "{{ cf_app_tunnel_id }}.cfargotunnel.com"
           proxied: true
-          enabled: true
-          steering_policy: "off"
         status_code: [200, 201]
-      loop: "{{ cf_apex_lb_hostnames }}"
-      when:
-        - cf_apex_enabled | bool
-        - item not in (cf_apex_lbs.json.result | map(attribute='name') | list)
+      loop: "{{ cf_app_dns_lookup.results }}"
+      loop_control: { label: "{{ item.item }}" }
+      when: item.json.result | length == 0
       changed_when: true

@@ -60,15 +60,23 @@ recreates etcd on **both** data nodes inside the same task: 3 members become 1, 
 majority, Patroni self-fences, and Postgres goes read-only for clip **and** chat.
 
 `rolling-deploy.sh` exists to serialize exactly this (`--limit <host>`, one box at a time, with a
-Patroni leader handoff first) and is the path this file should recommend. **It does not work on this
-tier today:** its drain calls the Cloudflare *Load Balancer* pool API, this tier is tunnel-only
-(`cloudflared`), and the call returns 401 — so `drain.sh check` fails and rolling-deploy aborts
-before deploying anything. keygrip fixed the same drift by rewriting drain around the tunnel
-connector (its #159–#161); that has not been ported here. Note the knock-on: `reboot_safe()` calls
-the same failing check, so the guarded auto-reboot timer refuses every window once a reboot is
-actually pending — kernel updates never land that way.
+Patroni leader handoff first) and is the path to use:
 
-Until drain is fixed, roll it by hand, follower first, checking `endpoint health` in between:
+```
+./rolling-deploy.sh postgres-ha.yml
+```
+
+**This was broken for the role's whole life and was fixed on 2026-07-30.** The drain drove a
+Cloudflare *Load Balancer* pool, but the account token had been rotated outside the repo, so the pool
+call returned 401 — and since that call *was* the drain, `drain.sh check` failed and rolling-deploy
+aborted before deploying anything. The knock-on was worse than the deploy path: `reboot_safe()` calls
+the same check, so the guarded auto-reboot timer refused **every** window and kernel updates never
+landed. Drain is now local (`docker compose stop cloudflared` on the two-connector app tunnel, ported
+from keygrip's #159–#161) and the Cloudflare API is only the *witness* — a dead token degrades the
+observation, never the drain. Verified on both boxes: `drain.sh check` exits 0, and a live
+drain/undrain of vent.dog2 served 70/70 requests on `clip.cool` with no failures.
+
+To roll it by hand instead — follower first, checking `endpoint health` in between:
 
 ```
 ./ac ansible-playbook playbooks/postgres-ha.yml -l vent.dog2   # the replica first

@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# cf-retire-lb — retire the clip.cool Cloudflare Load Balancers, replacing them with proxied CNAMEs to
+# the app tunnel. One-time cutover (2026-07-30); safe to re-run (every step is skipped if already done).
+#
+# WHY: the LB existed to fan clip.cool + id.clip.cool across two per-box tunnels. One tunnel with a
+# connector on each box does the same job for free, and fixes the drain path — see roles/drain and
+# roles/cloudflared. The LB was also the only thing on this tier that needed a write-scoped Cloudflare
+# token on the boxes.
+#
+# ⚠️ THIS ACCOUNT HAS 14 OTHER LOAD BALANCERS ACROSS 8 ZONES (amsfusion.com and the other AMS sites).
+# They must not be disturbed. They run off a DIFFERENT pool (`ams-ionos`) with a DIFFERENT monitor, and
+# this script proves that separation before every delete rather than trusting it:
+#   - it only ever touches load balancers in the clip.cool zone, by exact name;
+#   - it refuses to delete the pool unless the pool's origins are exactly the two expected tunnels AND
+#     no load balancer in ANY zone on the account still references it;
+#   - it refuses to delete a monitor that any pool still references;
+#   - it never touches the Load Balancing SUBSCRIPTION. That must stay active for the AMS sites, so this
+#     removes 2 LB hostnames + 2 origins from the bill and nothing more. Cancelling the add-on in the
+#     dashboard would take amsfusion.com and the other 7 zones down.
+#
+# The unavoidable blip: Cloudflare will not let a DNS record and a load balancer own the same name, so
+# each hostname is delete-then-create, back to back — about a second of NXDOMAIN per hostname. That is
+# why this is a script and not two Ansible tasks; the playbook cannot make the swap at all (see the
+# comment on the CNAME task in roles/cloudflare/tasks/main.yml).
+#
+# Usage:
+#   bin/cf-retire-lb            # dry run — prints exactly what it would do, changes nothing
+#   bin/cf-retire-lb --apply
+set -euo pipefail
+
+APPLY=0
+[ "${1:-}" = "--apply" ] && APPLY=1
+
+API="https://api.cloudflare.com/client/v4"
+ACCOUNT="713923b79dee34635d5a5a1d8da34fbc"
+APP_ZONE="clip.cool"
+APP_TUNNEL="vent-keygrip2"            # the two-connector tunnel; see roles/cloudflared/defaults
+LB_NAMES=("clip.cool" "id.clip.cool") # the ONLY load balancers this script may delete
+POOL_NAME="keygrip"                   # the ONLY pool this script may delete
+# The origins the keygrip pool is expected to hold. If it holds anything else, something has changed
+# since this was written and the script stops rather than guessing.
+EXPECTED_ORIGINS=("vent-keygrip" "vent-keygrip2")
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CF_TOKEN="$("${here}/bin/secrets" get dev vault_cloudflare_api_token)"
+[ -n "$CF_TOKEN" ] || { echo "no vault_cloudflare_api_token in SOPS (dev)" >&2; exit 1; }
+
+c=""; y=""; r=""
+if [ -t 1 ]; then c=$'\033[36m'; y=$'\033[33m'; r=$'\033[0m'; fi
+log()  { echo "${c}[cf-retire-lb]${r} $*"; }
+plan() { echo "${y}[would]${r} $*"; }
+die()  { echo "ERROR: $*" >&2; exit 1; }
+cf()   { curl -fsS --max-time 30 -H "Authorization: Bearer ${CF_TOKEN}" "$@"; }
+
+# --- resolve everything up front, and fail before mutating if anything is off ---
+cf "${API}/user/tokens/verify" >/dev/null || die "the Cloudflare API token is not valid"
+
+zone_id=$(cf "${API}/zones?name=${APP_ZONE}" | jq -er '.result[0].id') \
+  || die "zone ${APP_ZONE} not visible to this token"
+tunnel_id=$(cf "${API}/accounts/${ACCOUNT}/cfd_tunnel?name=${APP_TUNNEL}&is_deleted=false" \
+  | jq -er '.result[0].id') || die "tunnel ${APP_TUNNEL} not found"
+log "zone ${APP_ZONE}=${zone_id}  tunnel ${APP_TUNNEL}=${tunnel_id}"
+
+# Refuse to run if the app tunnel is not actually serving from BOTH boxes yet — otherwise this cutover
+# points every hostname at a single-connector tunnel and quietly throws away the HA the LB was providing.
+conn_ips=$(cf "${API}/accounts/${ACCOUNT}/cfd_tunnel/${tunnel_id}/connections" \
+  | jq -r '[.result[]?|(.conns//[])[]|.origin_ip]|unique|join(" ")')
+n_conn=$(wc -w <<<"$conn_ips")
+log "app tunnel connectors: ${n_conn} box(es) — ${conn_ips:-none}"
+[ "$n_conn" -ge 2 ] || die "the app tunnel has ${n_conn} connector box(es), expected 2.
+Deploy the second connector FIRST (playbooks/cloudflared.yml), or this cutover drops you to one origin."
+
+# --- step 1: swap each load balancer for a proxied CNAME to the app tunnel ---
+lbs=$(cf "${API}/zones/${zone_id}/load_balancers")
+for name in "${LB_NAMES[@]}"; do
+  lb_id=$(jq -r --arg n "$name" '.result[]|select(.name==$n)|.id' <<<"$lbs")
+  existing=$(cf "${API}/zones/${zone_id}/dns_records?name=${name}&type=CNAME" | jq -r '.result[0].content // ""')
+
+  if [ -z "$lb_id" ] && [ "$existing" = "${tunnel_id}.cfargotunnel.com" ]; then
+    log "${name}: already a CNAME to the app tunnel — nothing to do"
+    continue
+  fi
+  if [ -z "$lb_id" ]; then
+    die "${name}: no load balancer AND no CNAME to the app tunnel (found '${existing:-nothing}') — refusing to guess"
+  fi
+
+  if [ "$APPLY" -eq 0 ]; then
+    plan "delete LB ${name} (${lb_id}), then create proxied CNAME ${name} -> ${tunnel_id}.cfargotunnel.com"
+    continue
+  fi
+
+  # Back to back on purpose: the hostname has no record between these two calls.
+  log "${name}: deleting the load balancer"
+  cf -X DELETE "${API}/zones/${zone_id}/load_balancers/${lb_id}" >/dev/null
+  log "${name}: creating the proxied CNAME -> app tunnel"
+  cf -X POST "${API}/zones/${zone_id}/dns_records" -H "Content-Type: application/json" \
+     --data "$(jq -nc --arg n "$name" --arg c "${tunnel_id}.cfargotunnel.com" \
+               '{type:"CNAME", name:$n, content:$c, proxied:true}')" >/dev/null
+  log "${name}: now served by the tunnel"
+done
+
+# --- step 2: delete the pool, but only once nothing anywhere references it ---
+pools=$(cf "${API}/accounts/${ACCOUNT}/load_balancers/pools")
+pool_id=$(jq -r --arg n "$POOL_NAME" '.result[]|select(.name==$n)|.id' <<<"$pools")
+pool_monitor=$(jq -r --arg n "$POOL_NAME" '.result[]|select(.name==$n)|.monitor // ""' <<<"$pools")
+
+if [ -z "$pool_id" ]; then
+  log "pool ${POOL_NAME}: already gone"
+else
+  # Guard A: the pool must hold exactly the origins we expect. Anything else means this pool is not
+  # (only) ours any more, and deleting it could break something we did not intend.
+  origins=$(jq -r --arg n "$POOL_NAME" '.result[]|select(.name==$n)|[.origins[].name]|sort|join(",")' <<<"$pools")
+  want=$(printf '%s\n' "${EXPECTED_ORIGINS[@]}" | sort | paste -sd,)
+  [ "$origins" = "$want" ] || die "pool ${POOL_NAME} holds origins [${origins}], expected [${want}] — refusing to delete"
+
+  # Guard B: no load balancer in ANY zone may still reference it. This is the check that protects the
+  # AMS sites: if any of them somehow pointed here, we stop.
+  # The load balancers this run retires are EXCLUDED: on a dry run they still exist (nothing has been
+  # deleted yet), so counting them would trip this guard every time and the plan would never print.
+  # Everything else still counts — that is the check that protects the AMS zones.
+  mine=$(printf '%s\n' "${LB_NAMES[@]/#/${APP_ZONE}/}" | sort -u)
+  refs=$(
+    while IFS=$'\t' read -r zid zname; do
+      cf "${API}/zones/${zid}/load_balancers" 2>/dev/null \
+        | jq -r --arg p "$pool_id" --arg z "$zname" \
+            '.result[]?|select(((.default_pools//[])|index($p)) != null or .fallback_pool==$p)|"\($z)/\(.name)"' \
+        || true
+    done < <(cf "${API}/zones?per_page=100" | jq -r '.result[]|"\(.id)\t\(.name)"') \
+      | sort -u | comm -23 - <(printf '%s\n' "$mine")
+  )
+
+  if [ -n "$refs" ]; then
+    die "pool ${POOL_NAME} is still referenced by load balancers this script does not manage:
+${refs}
+Refusing to delete it."
+  fi
+  log "pool ${POOL_NAME} (${pool_id}): referenced by nothing except the LBs retired above"
+
+  if [ "$APPLY" -eq 0 ]; then
+    plan "delete pool ${POOL_NAME} (${pool_id}) with origins [${origins}]"
+  else
+    cf -X DELETE "${API}/accounts/${ACCOUNT}/load_balancers/pools/${pool_id}" >/dev/null
+    log "pool ${POOL_NAME}: deleted"
+  fi
+fi
+
+# --- step 3: delete monitors that no pool references any more ---
+# Only ever the ones describing this app's /readyz check, and only when unreferenced. The AMS pool's
+# monitor is a different object and is never a candidate here.
+pools_after=$(cf "${API}/accounts/${ACCOUNT}/load_balancers/pools")
+in_use=$(jq -r '[.result[]|.monitor // empty]|join(" ")' <<<"$pools_after")
+cf "${API}/accounts/${ACCOUNT}/load_balancers/monitors" \
+  | jq -r '.result[]|select((.description//"")|test("keygrip app"))|"\(.id)\t\(.description)"' \
+  | while IFS=$'\t' read -r mid mdesc; do
+      if grep -qw "$mid" <<<"$in_use"; then
+        log "monitor '${mdesc}' (${mid}): still referenced by a pool — leaving it"
+      elif [ "$APPLY" -eq 0 ]; then
+        plan "delete unreferenced monitor '${mdesc}' (${mid})"
+      else
+        cf -X DELETE "${API}/accounts/${ACCOUNT}/load_balancers/monitors/${mid}" >/dev/null \
+          && log "monitor '${mdesc}': deleted"
+      fi
+    done
+
+echo
+if [ "$APPLY" -eq 0 ]; then
+  log "DRY RUN — nothing changed. Re-run with --apply to do it."
+else
+  log "done. Now run: ./ac ansible-playbook playbooks/cloudflare.yml   (drops clip.cool/id.clip.cool"
+  log "     from the CHAT tunnel's ingress, so that tunnel serves only chat/livekit.vent.dog)"
+  log "Reminder: the Load Balancing subscription stays — the AMS zones still use it."
+fi
