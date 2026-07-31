@@ -179,6 +179,16 @@ pg_ha_backup_databases:
 # Truncation is caught properly in backup.sh by requiring pg_dump's completion marker in the object
 # streamed back out of B2 — a check that works at any size and also proves the upload is readable.
 pg_ha_backup_min_bytes: 500
+# Per-database retry of the whole dump→upload→verify. rclone CANNOT retry this itself: rcat is fed a
+# stream (`pg_dump | gzip | rclone rcat`), so once stdin is consumed there is nothing left to re-send
+# and --retries has no effect. On 2026-07-31 B2 refused the clip upload with `no tomes available
+# (503 service_unavailable)`; rcat gave up after 2 low-level errors, and that one transient refusal
+# cost a 24h backup gap for clip and paged PostgresBackupStale at 05:24 — while the other three
+# databases uploaded fine seconds later. Transient 5xx from B2 is normal, so absorb it here.
+# 3 attempts with linear backoff = at most 30+60s of sleeping per database, ~6 min across all four,
+# against the 2h margin between the 02:00 start and roles/drain's 04:00 reboot window.
+pg_ha_backup_attempts: 3
+pg_ha_backup_retry_delay: 30              # seconds; multiplied by the attempt number
 # Advisory lock the dump holds for its whole run. roles/drain's guarded auto-reboot tests this same
 # path and skips its window while a dump is in flight (drain_backup_lock). On tmpfs (/run), so it
 # cannot survive a reboot and strand the lock. Moving this path means moving drain_backup_lock too.

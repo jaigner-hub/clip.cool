@@ -12,6 +12,14 @@
 #
 #   ./rolling-deploy.sh postgres-ha.yml
 #
+# Shipping ONLY the nightly backup script/cron (no cluster changes at all):
+#   ./ac ansible-playbook playbooks/postgres-ha.yml --limit vent.dog --tags backup
+# The `backup` tag covers the four tasks at the end of roles/postgres_ha; nothing else runs, so etcd
+# is never recreated and the whole serial/rolling concern below does not apply. The quorum pre_tasks
+# are untagged and are therefore skipped too — correct here, and deliberate: a backup-script change
+# must not be blocked by the homelab witness being down, because it cannot affect quorum either way.
+# --limit vent.dog because pg_ha_backup_host is vent.dog; the tasks no-op on the peer regardless.
+#
 # ⚠️ Deploy through rolling-deploy.sh, NOT a bare `./ac ansible-playbook`. This play has no
 # `serial:`, so a bare run recreates etcd on BOTH data nodes inside the same task — 3 members
 # become 1, there is no majority, Patroni self-fences and Postgres goes READ-ONLY for clip AND

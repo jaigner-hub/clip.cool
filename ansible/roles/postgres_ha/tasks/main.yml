@@ -160,6 +160,12 @@
     'CREATE ROLE' in _init_app_db.stdout or 'CREATE DATABASE' in _init_app_db.stdout
 
 # --- Nightly pg_dump -> Backblaze B2 (ADR 0016). Runs on ONE node only; rclone config via env. ---
+# All four tasks carry the `backup` tag so the script can be shipped on its own:
+#   ./ac ansible-playbook playbooks/postgres-ha.yml --limit vent.dog --tags backup
+# That matters because this playbook has NO `serial:` — a bare run recreates etcd on BOTH data nodes
+# inside the same task (see the playbook header), which is not something you want to do just to
+# change a shell script. The tag keeps a backup-only change off the cluster path entirely.
+#
 # The textfile-collector drop dir backup.sh publishes its age metrics into. Created here as well as
 # in roles/observability because THIS role is the writer: postgres-ha.yml must not depend on
 # observability.yml having run first (it currently has, but that ordering is nowhere enforced).
@@ -173,6 +179,7 @@
   when:
     - pg_ha_backup_enabled | bool
     - inventory_hostname == pg_ha_backup_host
+  tags: [backup]
 
 - name: Install rclone (backup host only)
   ansible.builtin.apt:
@@ -182,6 +189,7 @@
   when:
     - pg_ha_backup_enabled | bool
     - inventory_hostname == pg_ha_backup_host
+  tags: [backup]
 
 - name: Install the backup script (backup host only)
   ansible.builtin.template:
@@ -194,6 +202,7 @@
     - pg_ha_backup_enabled | bool
     - inventory_hostname == pg_ha_backup_host
   no_log: true
+  tags: [backup]
 
 - name: Schedule the nightly backup (backup host only)
   ansible.builtin.cron:
@@ -204,3 +213,4 @@
   when:
     - pg_ha_backup_enabled | bool
     - inventory_hostname == pg_ha_backup_host
+  tags: [backup]

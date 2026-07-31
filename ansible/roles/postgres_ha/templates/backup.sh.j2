@@ -54,62 +54,101 @@ rc=0
 for db in {{ pg_ha_backup_databases | join(' ') }}; do
   dest="${PREFIX}/${db}-${STAMP}.sql.gz"
 
-  # Dump as the SUPERUSER, not the app role. The app role has no rights in Keycloak's or Dendrite's
-  # database, and keycloak.user_entity is the ONLY copy of every login on the platform. Losing it
-  # means losing the ability to authenticate at all, which no amount of app-data recovery fixes.
-  # Backing up only app_db_name is the exact failure this loop exists to avoid.
-  if docker compose -f "{{ pg_ha_dir }}/compose.yml" exec -T \
-       -e PGPASSWORD="${PATRONI_SUPERUSER_PASSWORD}" patroni \
-       pg_dump -h 127.0.0.1 -p {{ pg_ha_haproxy_write_port }} \
-               -U "${PATRONI_SUPERUSER_USERNAME}" -d "${db}" \
-     | gzip | rclone rcat "${dest}"
-  then
-    # `rclone rcat` will happily create an object from a truncated stream, so a half-finished dump
-    # looks like a successful backup right up until someone tries to restore it. Check what landed.
-    bytes="$(rclone size --json "${dest}" 2>/dev/null | sed -n 's/.*"bytes":[[:space:]]*\([0-9]*\).*/\1/p')"
-    if [ -z "${bytes}" ]; then
-      # Could not read the size back — e.g. a transient B2 error. Do NOT treat an unknown size as
-      # a small one: deleting here would destroy a backup that is probably fine. Flag it instead.
-      echo "$(date -u +%FT%TZ) WARN ${db}: uploaded to ${dest} but its size could not be read back — object LEFT IN PLACE, verify by hand"
-      rc=1
-    elif [ "${bytes}" -lt {{ pg_ha_backup_min_bytes }} ]; then
-      echo "$(date -u +%FT%TZ) FAIL ${db}: landed ${bytes} bytes, under the {{ pg_ha_backup_min_bytes }}-byte floor — removing the object"
-      rclone deletefile "${dest}" || true
-      rc=1
-    # A byte floor CANNOT tell a truncated dump from a legitimately small one, and this cluster has
-    # both: `vent` is an empty placeholder whose complete dump is ~3 KB, which a floor calibrated to
-    # catch truncation would reject every night (measured 2026-07-30 — it did). pg_dump ends every
-    # successful plain-format dump with this marker, so its presence is a definitive completeness
-    # check at any size. Streaming the object back from B2 also proves the upload is readable and the
-    # gzip intact, which the floor never did.
+  # Retry the WHOLE dump→upload→verify for this database, because rclone cannot retry it for us.
+  # `pg_dump | gzip | rclone rcat` feeds rcat a STREAM: once rcat has consumed stdin the source is
+  # gone, so rclone's own --retries has nothing to re-send and it gives up after its low-level tries.
+  # Measured 2026-07-31: B2 answered the clip upload with `no tomes available (503
+  # service_unavailable)` at 02:00:03, rcat failed after 2 errors, and that single transient refusal
+  # cost a full 24h gap for clip (the other three databases uploaded fine seconds later) and paged
+  # PostgresBackupStale at 05:24. Re-running the script by hand at 12:57 succeeded first try.
+  # A transient 503 from B2 is normal operation, not an incident — it should cost seconds, not a day.
+  # Re-dumping is cheap here: the largest database is ~4 MB gzipped and takes ~3s end to end.
+  attempt=1
+  while :; do
+    # Dump as the SUPERUSER, not the app role. The app role has no rights in Keycloak's or Dendrite's
+    # database, and keycloak.user_entity is the ONLY copy of every login on the platform. Losing it
+    # means losing the ability to authenticate at all, which no amount of app-data recovery fixes.
+    # Backing up only app_db_name is the exact failure this loop exists to avoid.
     #
-    # `tail` is fed the WHOLE stream (no early close) and the result is captured before grepping —
-    # `… | gunzip | tail | grep -q` would SIGPIPE gunzip when grep exits on the first match and, under
-    # pipefail, fail a perfectly good backup. A corrupt object still fails here: gunzip produces no
-    # usable output, so the marker is missing.
-    elif ! grep -qF -- '-- PostgreSQL database dump complete' \
-             <<<"$(rclone cat "${dest}" 2>/dev/null | gunzip 2>/dev/null | tail -20 || true)"; then
-      echo "$(date -u +%FT%TZ) FAIL ${db}: ${bytes} bytes landed but the dump has no completion marker — truncated or corrupt, removing it"
-      rclone deletefile "${dest}" || true
-      rc=1
+    # `status` carries the verdict out of the branches below: ok (done) / retry (transient, try
+    # again) / giveup (ambiguous, stop touching it and let a human look).
+    status=""
+    if docker compose -f "{{ pg_ha_dir }}/compose.yml" exec -T \
+         -e PGPASSWORD="${PATRONI_SUPERUSER_PASSWORD}" patroni \
+         pg_dump -h 127.0.0.1 -p {{ pg_ha_haproxy_write_port }} \
+                 -U "${PATRONI_SUPERUSER_USERNAME}" -d "${db}" \
+       | gzip | rclone rcat "${dest}"
+    then
+      # `rclone rcat` will happily create an object from a truncated stream, so a half-finished dump
+      # looks like a successful backup right up until someone tries to restore it. Check what landed.
+      bytes="$(rclone size --json "${dest}" 2>/dev/null | sed -n 's/.*"bytes":[[:space:]]*\([0-9]*\).*/\1/p')"
+      if [ -z "${bytes}" ]; then
+        # Could not read the size back — e.g. a transient B2 error. Do NOT treat an unknown size as
+        # a small one: deleting here would destroy a backup that is probably fine. Flag it instead.
+        # Deliberately NOT retried: the object is being left in place, and a retry would upload a
+        # second version over an object we have not established is bad. Ambiguity is a human's call.
+        echo "$(date -u +%FT%TZ) WARN ${db}: uploaded to ${dest} but its size could not be read back — object LEFT IN PLACE, verify by hand"
+        status=giveup
+      elif [ "${bytes}" -lt {{ pg_ha_backup_min_bytes }} ]; then
+        echo "$(date -u +%FT%TZ) FAIL ${db}: landed ${bytes} bytes, under the {{ pg_ha_backup_min_bytes }}-byte floor — removing the object"
+        rclone deletefile "${dest}" || true
+        status=retry
+      # A byte floor CANNOT tell a truncated dump from a legitimately small one, and this cluster has
+      # both: `vent` is an empty placeholder whose complete dump is ~3 KB, which a floor calibrated to
+      # catch truncation would reject every night (measured 2026-07-30 — it did). pg_dump ends every
+      # successful plain-format dump with this marker, so its presence is a definitive completeness
+      # check at any size. Streaming the object back from B2 also proves the upload is readable and the
+      # gzip intact, which the floor never did.
+      #
+      # `tail` is fed the WHOLE stream (no early close) and the result is captured before grepping —
+      # `… | gunzip | tail | grep -q` would SIGPIPE gunzip when grep exits on the first match and, under
+      # pipefail, fail a perfectly good backup. A corrupt object still fails here: gunzip produces no
+      # usable output, so the marker is missing.
+      elif ! grep -qF -- '-- PostgreSQL database dump complete' \
+               <<<"$(rclone cat "${dest}" 2>/dev/null | gunzip 2>/dev/null | tail -20 || true)"; then
+        echo "$(date -u +%FT%TZ) FAIL ${db}: ${bytes} bytes landed but the dump has no completion marker — truncated or corrupt, removing it"
+        rclone deletefile "${dest}" || true
+        status=retry
+      else
+        echo "$(date -u +%FT%TZ) OK ${db} -> ${dest} (${bytes} bytes, completion marker verified)"
+        last_ok["${db}"]="$(date +%s)"   # only a VERIFIED upload counts as a success
+        status=ok
+      fi
     else
-      echo "$(date -u +%FT%TZ) OK ${db} -> ${dest} (${bytes} bytes, completion marker verified)"
-      last_ok["${db}"]="$(date +%s)"   # only a VERIFIED upload counts as a success
+      echo "$(date -u +%FT%TZ) FAIL ${db}: dump/upload pipeline exited non-zero (attempt ${attempt}/{{ pg_ha_backup_attempts }})"
+      # `rcat` can create a PARTIAL object before the pipeline dies, and the size check above lives
+      # only on the success path — so without this a failed run can leave a short, unverified object
+      # sitting in the prefix under a perfectly normal-looking name. The dest carries this run's
+      # unique STAMP, so anything here came from THIS failed attempt and is not worth keeping.
+      # This matters more with retries: every attempt reuses the same dest, so a partial left behind
+      # would be the object a LATER attempt has to overwrite rather than create.
+      # deletefile exits non-zero when there's nothing there, which is the common case (the upload
+      # usually fails before any object exists) — hence the `if`, so the log only claims a removal
+      # that actually happened.
+      if rclone deletefile "${dest}" 2>/dev/null; then
+        echo "$(date -u +%FT%TZ) removed the partial object left at ${dest}"
+      fi
+      status=retry
     fi
-  else
-    echo "$(date -u +%FT%TZ) FAIL ${db}: dump/upload pipeline exited non-zero"
-    # `rcat` can create a PARTIAL object before the pipeline dies, and the size check above lives
-    # only on the success path — so without this a failed run can leave a short, unverified object
-    # sitting in the prefix under a perfectly normal-looking name. The dest carries this run's
-    # unique STAMP, so anything here came from THIS failed attempt and is not worth keeping.
-    # deletefile exits non-zero when there's nothing there, which is the common case (the upload
-    # usually fails before any object exists) — hence the `if`, so the log only claims a removal
-    # that actually happened.
-    if rclone deletefile "${dest}" 2>/dev/null; then
-      echo "$(date -u +%FT%TZ) removed the partial object left at ${dest}"
+
+    # `if`, not `[ … ] && break` — same reason as the metrics loop above: this file keeps AND-lists
+    # out of `set -e` code paths on principle rather than reasoning about each one's exempt position.
+    if [ "${status}" = ok ]; then break; fi
+    if [ "${status}" = giveup ] || [ "${attempt}" -ge {{ pg_ha_backup_attempts }} ]; then
+      if [ "${status}" = retry ]; then
+        echo "$(date -u +%FT%TZ) FAIL ${db}: giving up after {{ pg_ha_backup_attempts }} attempts"
+      fi
+      rc=1
+      break
     fi
-    rc=1
-  fi
+    # Linear backoff. Sleeping here is safe and intended: the flock is held for the whole run, so
+    # roles/drain's guarded reboot keeps skipping its window while we wait. Worst case across every
+    # database is a few minutes, against a 2h margin to the 04:00 reboot slot.
+    delay=$(( {{ pg_ha_backup_retry_delay }} * attempt ))
+    echo "$(date -u +%FT%TZ) ${db}: retrying in ${delay}s"
+    sleep "${delay}"
+    attempt=$(( attempt + 1 ))
+  done
 done
 
 # Retention: prune dumps older than the window — but ONLY if every database backed up cleanly.
